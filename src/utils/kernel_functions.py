@@ -116,6 +116,18 @@ def laplacian_kernel(x1:torch.Tensor,
     if gamma is None:
         gamma = 1.0 / x1.shape[-1]
     return torch.exp(-gamma * torch.cdist(x1, x2, p=1))
+
+def exponential_kernel(x1:torch.Tensor, 
+                       x2:torch.Tensor, 
+                       gamma=None)->torch.Tensor:
+    """
+        Computes a scaled exponential kernel as:
+            k(x1, x2) = exp(gamma * <x1, x2>)
+    """
+    if gamma is None:
+        gamma = 1.0 /x1.shape[-1]
+    x2 = _correct_dim(x2)
+    return torch.exp(gamma * torch.matmul(x1, x2))
     
 class LinearKernel:
     def __init__(self, fpPrecision='float32'):
@@ -169,6 +181,16 @@ class LaplacianKernel:
         x = _to_float(x, self.fpPrecision)
         y = _to_float(y, self.fpPrecision) 
         return laplacian_kernel(x, y, self.gamma)
+    
+class ExponentialKernel:
+    def __init__(self, gamma=None, fpPrecision='float32'):
+        self.fpPrecision = fpPrecision
+        self.gamma = gamma
+
+    def __call__(self, x:torch.Tensor, y:torch.Tensor)->torch.Tensor:
+        x = _to_float(x, self.fpPrecision)
+        y = _to_float(y, self.fpPrecision) 
+        return exponential_kernel(x, y, self.gamma)
 
 
 def chi_squared_kernel(x1, x2, gamma):
