@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from ops import _correct_dim, _to_float
+from .ops import _correct_dim, _to_float
 
  
 def linear_kernel(x1:Tensor, 
