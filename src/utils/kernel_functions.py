@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+from numpy import sqrt
 from .ops import _correct_dim, _to_float
 
  
@@ -91,7 +92,7 @@ def exponential_kernel(x1:Tensor,
             k(x1, x2) = exp(gamma * <x1, x2>)
     """
     if gamma is None:
-        gamma = 1.0 /x1.shape[-1]
+        gamma = 1.0 /sqrt(x1.shape[-1])
     x2 = _correct_dim(x2)
     return torch.exp(gamma * torch.matmul(x1, x2))
     

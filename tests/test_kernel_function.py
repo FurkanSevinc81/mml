@@ -2,7 +2,7 @@ import unittest
 import torch
 import numpy as np
 import sklearn.metrics.pairwise as prw
-import src.utils.kernel_functions as ops
+import src.utils.kernel_functions as kops
 
 class TestKernelFunctions(unittest.TestCase):
     def setUp(self):
@@ -17,242 +17,221 @@ class TestKernelFunctions(unittest.TestCase):
 
         self.X_batched = torch.rand(100, 28, 45)
         self.Y_batched = torch.rand(100, 28, 45)
-
-        self.atol = 1e-3
+        
         self.gamma = None
         self.degree = 3
         self.coeff = 1
 
-        self.linear_kernel_func = ops.LinearKernel(fpPrecision='float16')
-        self.rbf_kernel_func = ops.RBFKernel(gamma=self.gamma, 
+        self.linear_kernel_func = kops.LinearKernel(fpPrecision='float16')
+        self.rbf_kernel_func = kops.RBFKernel(gamma=self.gamma, 
                                              fpPrecision='float16')
-        self.polynomial_kernel_func = ops.PolynomialKernel(degree=self.degree,
+        self.polynomial_kernel_func = kops.PolynomialKernel(degree=self.degree,
                                                            gamma=self.gamma,
                                                            coeff=self.coeff,
                                                            fpPrecision='float16')
-        self.sigmoid_kernel_func = ops.SigmoidKernel(gamma=self.gamma,
+        self.sigmoid_kernel_func = kops.SigmoidKernel(gamma=self.gamma,
                                                      coeff=self.coeff,
                                                      fpPrecision='float16')
-        self.laplacian_kernel_func = ops.LaplacianKernel(gamma=self.gamma,
+        self.laplacian_kernel_func = kops.LaplacianKernel(gamma=self.gamma,
                                                          fpPrecision='float16')
 
     ##### Testing linear kernel against scikit implementation
     def test_linear_1(self):
-        target = prw.linear_kernel(self.X, self.Y)
-        pred = self.linear_kernel_func(self.X, self.Y)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float),
-                                       atol=self.atol))
+        expected = prw.linear_kernel(self.X, self.Y)
+        actual = self.linear_kernel_func(self.X, self.Y)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual )
 
     def test_linear_2(self):
-        target = prw.linear_kernel(self.X_single, self.Y_single)
-        pred = self.linear_kernel_func(self.X_single, self.Y_single)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float),
-                                       atol=self.atol))
+        expected = prw.linear_kernel(self.X_single, self.Y_single)
+        actual = self.linear_kernel_func(self.X_single, self.Y_single)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     def test_linear_3(self):
-        target = []
+        expected = []
         for X, Y in zip(self.X_batched, self.Y_batched): 
-            target.append(prw.linear_kernel(X, Y))
-        target = np.array(target)
-        pred = self.linear_kernel_func(self.X_batched, self.Y_batched)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float),
-                                       atol=self.atol))
+            expected.append(prw.linear_kernel(X, Y))
+        expected = np.array(expected)
+        actual = self.linear_kernel_func(self.X_batched, self.Y_batched)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
         
     def test_linear_4(self):
-        target = prw.linear_kernel(self.X_vec, self.Y_vec)
-        pred = self.linear_kernel_func(self.X_vec, self.Y_vec)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float),
-                                       atol=self.atol))
+        expected = prw.linear_kernel(self.X_vec, self.Y_vec)
+        actual = self.linear_kernel_func(self.X_vec, self.Y_vec)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     ##### Testing polynomial kernel against scikit implementation
     def test_poly_1(self):
-        target = prw.polynomial_kernel(self.X, 
+        expected = prw.polynomial_kernel(self.X, 
                                        self.Y, 
                                        self.degree, 
                                        self.gamma, 
                                        self.coeff)
-        pred = self.polynomial_kernel_func(self.X, self.Y)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float),
-                                       atol=self.atol))
+        actual = self.polynomial_kernel_func(self.X, self.Y)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     def test_poly_2(self):
-        target = prw.polynomial_kernel(self.X_single, 
+        expected = prw.polynomial_kernel(self.X_single, 
                                        self.Y_single, 
                                        self.degree, 
                                        self.gamma, 
                                        self.coeff)
-        pred = self.polynomial_kernel_func(self.X_single, self.Y_single)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+        actual = self.polynomial_kernel_func(self.X_single, self.Y_single)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float), 
+                                   actual)
 
     def test_poly_3(self):
-        target = []
+        expected = []
         for X, Y in zip(self.X_batched, self.Y_batched): 
-            target.append(prw.polynomial_kernel(X, 
+            expected.append(prw.polynomial_kernel(X, 
                                                 Y, 
                                                 self.degree,
                                                 self.gamma, 
                                                 self.coeff))
-        target = np.array(target)
-        pred = self.polynomial_kernel_func(self.X_batched, self.Y_batched)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+        expected = np.array(expected)
+        actual = self.polynomial_kernel_func(self.X_batched, self.Y_batched)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     def test_poly_4(self):
-        target = prw.polynomial_kernel(self.X_vec, 
+        expected = prw.polynomial_kernel(self.X_vec, 
                                        self.Y_vec, 
                                        self.degree, 
                                        self.gamma, 
                                        self.coeff)
-        pred = self.polynomial_kernel_func(self.X_vec, self.Y_vec)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+        actual = self.polynomial_kernel_func(self.X_vec, self.Y_vec)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
         
     ##### Testing RBF kernel against scikit implementation
     def test_rbf_1(self):
-        target = prw.rbf_kernel(self.X, self.Y, self.gamma)
-        pred = self.rbf_kernel_func(self.X, self.Y) 
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float),
-                                       atol=self.atol))
+        expected = prw.rbf_kernel(self.X, self.Y, self.gamma)
+        actual = self.rbf_kernel_func(self.X, self.Y) 
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     def test_rbf_2(self):
-        target = prw.rbf_kernel(self.X_single, 
+        expected = prw.rbf_kernel(self.X_single, 
                                 self.Y_single, 
                                 self.gamma)
-        pred = self.rbf_kernel_func(self.X_single, self.Y_single)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+        actual = self.rbf_kernel_func(self.X_single, self.Y_single)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     def test_rbf_3(self):
-        target = []
+        expected = []
         for X, Y in zip(self.X_batched, self.Y_batched): 
-            target.append(prw.rbf_kernel(X, Y, self.gamma))
-        target = np.array(target)
-        pred = self.rbf_kernel_func(self.X_batched, self.Y_batched)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+            expected.append(prw.rbf_kernel(X, Y, self.gamma))
+        expected = np.array(expected)
+        actual = self.rbf_kernel_func(self.X_batched, self.Y_batched)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
     
     def test_rbf_4(self):
-        target = prw.rbf_kernel(self.X_vec, 
+        expected = prw.rbf_kernel(self.X_vec, 
                                 self.Y_vec, 
                                 self.gamma)
-        pred = self.rbf_kernel_func(self.X_vec, self.Y_vec)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+        actual = self.rbf_kernel_func(self.X_vec, self.Y_vec)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     ##### Testing sigmoid kernel against scikit implementation
     def test_sigmoid_1(self):
-        target = prw.sigmoid_kernel(self.X, self.Y, self.gamma, self.coeff)
-        pred = self.sigmoid_kernel_func(self.X, self.Y)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float),
-                                       atol=self.atol))
+        expected = prw.sigmoid_kernel(self.X, self.Y, self.gamma, self.coeff)
+        actual = self.sigmoid_kernel_func(self.X, self.Y)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     def test_sigmoid_2(self):
-        target = prw.sigmoid_kernel(self.X_single, 
+        expected = prw.sigmoid_kernel(self.X_single, 
                                     self.Y_single, 
                                     self.gamma, 
                                     self.coeff)
-        pred = self.sigmoid_kernel_func(self.X_single, self.Y_single)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+        actual = self.sigmoid_kernel_func(self.X_single, self.Y_single)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     def test_sigmoid_3(self):
-        target = []
+        expected = []
         for X, Y in zip(self.X_batched, self.Y_batched): 
-            target.append(prw.sigmoid_kernel(X, Y, self.gamma, self.coeff))
-        target = np.array(target)
-        pred = self.sigmoid_kernel_func(self.X_batched, self.Y_batched)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+            expected.append(prw.sigmoid_kernel(X, Y, self.gamma, self.coeff))
+        expected = np.array(expected)
+        actual = self.sigmoid_kernel_func(self.X_batched, self.Y_batched)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
         
     def test_sigmoid_4(self):
-        target = prw.sigmoid_kernel(self.X_vec, 
+        expected = prw.sigmoid_kernel(self.X_vec, 
                                     self.Y_vec, 
                                     self.gamma, 
                                     self.coeff)
-        pred = self.sigmoid_kernel_func(self.X_vec, self.Y_vec)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+        actual = self.sigmoid_kernel_func(self.X_vec, self.Y_vec)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
     ##### Testing Laplacian kernel against scikit implementation
     def test_laplace_1(self):
-        target = prw.laplacian_kernel(self.X, 
+        expected = prw.laplacian_kernel(self.X, 
                                       self.Y, 
                                       self.gamma)
-        pred = self.laplacian_kernel_func(self.X, self.Y)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float),
-                                       atol=self.atol))
+        actual = self.laplacian_kernel_func(self.X, self.Y)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     def test_laplace_2(self):
-        target = prw.laplacian_kernel(self.X_single, 
+        expected = prw.laplacian_kernel(self.X_single, 
                                       self.Y_single, 
                                       self.gamma)
-        pred = self.laplacian_kernel_func(self.X_single, self.Y_single)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+        actual = self.laplacian_kernel_func(self.X_single, self.Y_single)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
 
     def test_laplace_3(self):
-        target = []
+        expected = []
         for X, Y in zip(self.X_batched, self.Y_batched): 
-            target.append(prw.laplacian_kernel(X, Y, self.gamma))
-        target = np.array(target)
-        pred = self.laplacian_kernel_func(self.X_batched, self.Y_batched)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+            expected.append(prw.laplacian_kernel(X, Y, self.gamma))
+        expected = np.array(expected)
+        actual = self.laplacian_kernel_func(self.X_batched, self.Y_batched)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual)
         
     def test_laplace_4(self):
-        target = prw.laplacian_kernel(self.X_vec, 
+        expected = prw.laplacian_kernel(self.X_vec, 
                                       self.Y_vec, 
                                       self.gamma)
-        pred = self.laplacian_kernel_func(self.X_vec, self.Y_vec)
-        self.assertTrue(torch.allclose(pred,
-                                       torch.tensor(target, dtype=torch.float), 
-                                       atol=self.atol))
+        actual = self.laplacian_kernel_func(self.X_vec, self.Y_vec)
+        torch.testing.assert_close(torch.tensor(expected, dtype=torch.float),
+                                   actual) 
 """    
     ##### Testing Chi-Squared kernel against scikit implementation
     def test_chi2_1(self):
         gamma = 1.5
-        target = prw.chi2_kernel(self.X, self.Y, gamma)
-        pred = ops.chi_squared_kernel(self.X, self.Y, gamma)
-        self.assertTrue(torch.allclose(pred.type(torch.DoubleTensor),
-                                       torch.tensor(target, dtype=torch.double),
+        expected = prw.chi2_kernel(self.X, self.Y, gamma)
+        actual = ops.chi_squared_kernel(self.X, self.Y, gamma)
+        self.assertTrue(torch.allclose(actual.type(torch.DoubleTensor),
+                                       torch.tensor(expected, dtype=torch.double),
                                        atol=self.atol))
 
     def test_chi2_2(self):
         gamma = 1.5
-        target = prw.chi2_kernel(self.X, self.Y, gamma)
-        pred = ops.chi_squared_kernel(self.X, self.Y, gamma)
-        self.assertTrue(torch.allclose(pred.type(torch.DoubleTensor),
-                                       torch.tensor(target, dtype=torch.double), 
+        expected = prw.chi2_kernel(self.X, self.Y, gamma)
+        actual = ops.chi_squared_kernel(self.X, self.Y, gamma)
+        self.assertTrue(torch.allclose(actual.type(torch.DoubleTensor),
+                                       torch.tensor(expected, dtype=torch.double), 
                                        atol=self.atol))
 
     def test_chi2_3(self):
         gamma = 1.5
-        target = []
+        expected = []
         for X, Y in zip(self.X_batched, self.Y_batched): 
-            target.append(prw.chi2_kernel(self.X, self.Y, gamma))
-        target = np.array(target)
-        pred = ops.chi_squared_kernel(self.X, self.Y, gamma)
-        self.assertTrue(torch.allclose(pred.type(torch.DoubleTensor),
-                                       torch.tensor(target, dtype=torch.double), 
+            expected.append(prw.chi2_kernel(self.X, self.Y, gamma))
+        expected = np.array(expected)
+        actual = ops.chi_squared_kernel(self.X, self.Y, gamma)
+        self.assertTrue(torch.allclose(actual.type(torch.DoubleTensor),
+                                       torch.tensor(expected, dtype=torch.double), 
                                        atol=self.atol))
 """
 if __name__ == '__main__':
