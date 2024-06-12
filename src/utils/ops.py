@@ -105,7 +105,7 @@ def kernel_smoother(kernel: Tensor) -> Tensor:
     sum = torch.sum(kernel, -1, keepdim=True)
     return kernel / sum
 
-def create_causal_mask(L: int, S: int, dtype: torch.dtype) -> Tensor:
+def create_causal_mask(L: int, S: int, dtype: torch.dtype=torch.float32) -> Tensor:
     """
     Creates a causal mask to be used in attention mechanisms to prevent
     attending to future tokens.
@@ -113,7 +113,8 @@ def create_causal_mask(L: int, S: int, dtype: torch.dtype) -> Tensor:
     Args:
         L (int): Target sequence length.
         S (int): Source sequence length.
-        dtype (torch.dtype): The data type for the mask tensor.
+        dtype (torch.dtype): The data type for the mask tensor. Defaults to
+                             `torch.float32`
 
     Returns:
         torch.Tensor: A causal mask tensor of shape (L, S) where elements
@@ -128,10 +129,12 @@ def create_causal_mask(L: int, S: int, dtype: torch.dtype) -> Tensor:
         #         [  0.,   0.,   0.,   0., -inf],
         #         [  0.,   0.,   0.,   0.,   0.]], dtype=torch.float32)
     """
+    #TODO Transformer module method `generate_square_subsequent_mask` provides similar functionality
     mask = torch.zeros(L, S, dtype=dtype)
     temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0)
     mask.masked_fill_(temp_mask.logical_not(), float("-inf"))
     return mask.to(dtype)
+
 
 def kernel_based_attention(query: Tensor, 
                            key: Tensor, 
@@ -237,7 +240,7 @@ def kernel_multi_head_attention_forward(
             attn_mask for computing scaled dot product attention.
             Default: ``False``.
             .. warning::
-                is_causal is provides a hint that the attn_mask is the
+                is_causal provides a hint that the attn_mask is the
                 causal mask.Providing incorrect hints can result in
                 incorrect execution, including forward and backward
                 compatibility.
@@ -448,7 +451,7 @@ def kernel_multi_head_attention_forward(
         query=q, key=k, value=v,
         kernel_function=kernel_func,
         attn_mask=attn_mask,
-        is_causal=is_causal,
+        is_causal=False,    # False since the causal mask is handle already, otherwise this would create a new mask
         dropout_p=dropout_p,
         need_weights=need_weights,
         batch_first=True)
