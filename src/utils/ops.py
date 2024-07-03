@@ -40,11 +40,11 @@ def _to_float(tensor:Tensor, precision:str='float32')->Tensor:
         raise ValueError(f"Unsupported precision: {precision}."\
                           "Supported precisions are 'float16', 'float32' and 'float64'.")
 
-def calculate_kernel(kernel_func: Callable[[Tensor, Tensor], Tensor], 
-                  x: Tensor, 
-                  y: Tensor,
-                  mask: Tensor = None, 
-                  is_causal: bool = False) -> Tensor:
+def calculate_kernel(kernel_func: Callable[[Tensor, Tensor], Tensor],
+                     x: Tensor,
+                     y: Tensor,
+                     mask: Tensor = None,
+                     is_causal: bool = False) -> Tensor:
     """
     Computes the (masked) kernel matrix for the given inputs and mask using an arbitrary kernel function.
     This is essentially used for the calculation of the attention scores between queries Q and keys K, where:
@@ -66,13 +66,18 @@ def calculate_kernel(kernel_func: Callable[[Tensor, Tensor], Tensor],
         assert mask is None
         L, S = x.size(-2), y.size(-2)
         mask = create_causal_mask(L, S, x.dtype)
-    kernel = kernel_func(x, y)
-    # while scaled dot-product attention masks the inputs with negative infinity
-    # the use of kernel functions requires a masking with 0.0. This achieves the
-    # same results, since exp(-inf) evaluates to 0.0, such that the softmax of masked
-    # input ensures that the masked positions are 0.0.
-    if mask is not None:
-        kernel = kernel.masked_fill(mask == float("-inf"), 0.0)
+    if kernel_func.has_stable:
+        kernel = kernel_func(x, y, stable=True)
+        if mask is not None:
+            kernel += mask
+    else:
+        kernel = kernel_func(x, y)
+        # while scaled dot-product attention masks the inputs with negative infinity
+        # the use of kernel functions requires a masking with 0.0. This achieves the
+        # same results, since exp(-inf) evaluates to 0.0, such that the softmax of masked
+        # input ensures that the masked positions are 0.0.
+        if mask is not None:
+            kernel = kernel.masked_fill(mask == float("-inf"), 0.0)
 
     return kernel
 
@@ -135,7 +140,6 @@ def create_causal_mask(L: int, S: int, dtype: torch.dtype=torch.float32) -> Tens
     mask.masked_fill_(temp_mask.logical_not(), float("-inf"))
     return mask.to(dtype)
 
-
 def kernel_based_attention(query: Tensor, 
                            key: Tensor, 
                            value:Tensor, 
@@ -144,7 +148,8 @@ def kernel_based_attention(query: Tensor,
                            is_causal: bool = False, 
                            dropout_p = 0.0, 
                            need_weights = False,
-                           batch_first = True) -> Tuple[Tensor, Optional[Tensor]]:
+                           batch_first = True
+                           ) -> Tuple[Tensor, Optional[Tensor]]:
     """
     Computes kernel-based attention using a specified kernel function. Input has to be batch first.
 
@@ -170,10 +175,19 @@ def kernel_based_attention(query: Tensor,
     if not batch_first:
         query, key, value = (x.transpose(1, 0) for x in (query, key, value))
 
-    # Calculate the attention weights using the provided kernel function.
-    attn_weights = calculate_kernel(kernel_function, query, key, attn_mask, is_causal)
-    # Smooth the attention weights by normalizing them along the last dimension.
-    attn_weights = kernel_smoother(attn_weights)
+    if kernel_function.has_stable:
+        # Calculate the attention weights using the provided kernel function.
+        attn_weights = calculate_kernel(kernel_function, query, key, attn_mask, is_causal)
+        # having has_stable = True indicates that the kernel has exp(.) as outermost expression.
+        # since calculating the kernel with stable set as True only returns the results inside
+        # of exp, the regular softmax can be applied. Example RBF kernel:
+        # RBF(x, y) = exp(-gamma * ||x-y||^2) = exp(z), where z = -gamma * ||x-y||^2
+        # kernel_smoother(exp(-gamma * ||x-y||^2)) = softmax(-gamma * ||x-y||^2)
+        attn_weights = F.softmax(attn_weights, dim=-1)
+    else:
+        attn_weights = calculate_kernel(kernel_function, query, key, attn_mask, is_causal)
+        attn_weights = kernel_smoother(attn_weights)
+    
     # Apply dropout to the attention weights if dropout_p is greater than 0.
     if dropout_p > 0.0:
         attn_weights = torch.dropout(attn_weights, dropout_p, train=True)
@@ -348,7 +362,7 @@ def kernel_multi_head_attention_forward(
 
     assert embed_dim == embed_dim_to_check, \
         f"was expecting embedding dimension of {embed_dim_to_check}, but got {embed_dim}"
-    if isinstance(embed_dim, torch.Tensor):
+    if isinstance(embed_dim, Tensor):
         # embed_dim can be a tensor when JIT tracing
         head_dim = embed_dim.div(num_heads, rounding_mode='trunc')
     else:
