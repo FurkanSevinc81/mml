@@ -12,8 +12,8 @@ class TestKernelFunctions(unittest.TestCase):
         self.X_single = torch.rand(512, 1)
         self.Y_single = torch.rand(512, 1)
 
-        self.X_vec = torch.rand(512)
-        self.Y_vec = torch.rand(512)
+        self.X_vec = torch.rand(512, 10)
+        self.Y_vec = torch.rand(512, 10)
 
         self.X_batched = torch.rand(100, 28, 45)
         self.Y_batched = torch.rand(100, 28, 45)
