@@ -23,9 +23,10 @@ class TestKernelFunctions(unittest.TestCase):
         self.out_proj_weight = torch.randn(self.embedding, self.embedding)
         self.out_proj_bias = torch.randn(self.embedding)
 
-        self.query = torch.rand((self.sequence, self.batch, self.embedding))
-        self.key = torch.rand((self.sequence, self.batch, self.embedding))
-        self.value = torch.rand((self.sequence, self.batch, self.embedding))
+        factor = 1000
+        self.query = torch.rand((self.sequence, self.batch, self.embedding)) * factor
+        self.key = torch.rand((self.sequence, self.batch, self.embedding)) * factor
+        self.value = torch.rand((self.sequence, self.batch, self.embedding)) * factor
 
         self.x = torch.rand((self.batch, self.sequence, self.embedding))
         self.y = torch.rand((self.batch, self.sequence, self.embedding))
@@ -248,6 +249,8 @@ class TestKernelFunctions(unittest.TestCase):
         )
         torch.testing.assert_close(self.expected_shape, output.shape, check_dtype=False)
         torch.testing.assert_close(self.expected_attn_weights_shape, attn_weights.shape, check_dtype=False)
+        self.assertTrue(torch.isfinite(output).all(), "Output contains NaN or infinity values")
+        self.assertTrue(torch.isfinite(attn_weights).all(), "Attention weights contain NaN or infinity values")
 
     def test_KMHSA_basic_linear(self):
         output, attn_weights = ops.kernel_multi_head_attention_forward(
@@ -280,6 +283,8 @@ class TestKernelFunctions(unittest.TestCase):
         )
         torch.testing.assert_close(self.expected_shape, output.shape, check_dtype=False)
         torch.testing.assert_close(self.expected_attn_weights_shape, attn_weights.shape, check_dtype=False)
+        self.assertTrue(torch.isfinite(output).all(), "Output contains NaN or infinity values")
+        self.assertTrue(torch.isfinite(attn_weights).all(), "Attention weights contain NaN or infinity values")
 
     def test_KMHSA_basic_polynomial(self):
         output, attn_weights = ops.kernel_multi_head_attention_forward(
@@ -312,6 +317,8 @@ class TestKernelFunctions(unittest.TestCase):
         )
         torch.testing.assert_close(self.expected_shape, output.shape, check_dtype=False)
         torch.testing.assert_close(self.expected_attn_weights_shape, attn_weights.shape, check_dtype=False)
+        self.assertTrue(torch.isfinite(output).all(), "Output contains NaN or infinity values")
+        self.assertTrue(torch.isfinite(attn_weights).all(), "Attention weights contain NaN or infinity values")
 
     def test_KMHSA_basic_sigmoid(self):
         output, attn_weights = ops.kernel_multi_head_attention_forward(
@@ -344,6 +351,8 @@ class TestKernelFunctions(unittest.TestCase):
         )
         torch.testing.assert_close(self.expected_shape, output.shape, check_dtype=False)
         torch.testing.assert_close(self.expected_attn_weights_shape, attn_weights.shape, check_dtype=False)
+        self.assertTrue(torch.isfinite(output).all(), "Output contains NaN or infinity values")
+        self.assertTrue(torch.isfinite(attn_weights).all(), "Attention weights contain NaN or infinity values")
 
     def test_KMHSA_basic_laplace(self):
         output, attn_weights = ops.kernel_multi_head_attention_forward(
@@ -376,6 +385,8 @@ class TestKernelFunctions(unittest.TestCase):
         )
         torch.testing.assert_close(self.expected_shape, output.shape, check_dtype=False)
         torch.testing.assert_close(self.expected_attn_weights_shape, attn_weights.shape, check_dtype=False)
+        self.assertTrue(torch.isfinite(output).all(), "Output contains NaN or infinity values")
+        self.assertTrue(torch.isfinite(attn_weights).all(), "Attention weights contain NaN or infinity values")
 
     def test_KMHSA_causal(self):
         expected, expected_attn_weights = F.multi_head_attention_forward(
