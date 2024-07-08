@@ -1,5 +1,6 @@
 import torch
 import warnings
+import math
 from torch import Tensor
 from typing import Optional, Any, Union, Callable, Tuple
 import torch.nn.functional as F
@@ -8,7 +9,6 @@ from torch.nn.modules.linear import NonDynamicallyQuantizableLinear
 import utils.ops as ops
 import utils.kernel_functions as kops
 from torch.nn.init import xavier_uniform_, constant_, xavier_normal_
-from torch.nn.modules import _is_make_fx_tracing, _check_arg_device
 from torch.nn.modules.transformer import _get_seq_len, _detect_is_causal_mask, \
                                          _get_clones, _get_activation_fn, \
                                          _generate_square_subsequent_mask
@@ -68,9 +68,9 @@ class KernelTransformer(Module):
             encoder_norm = LayerNorm(d_model, eps=layer_norm_eps, bias=bias, **factory_kwargs)
             self.encoder = KernelTransformerEncoder(encoder_layer, num_layers, encoder_norm)
 
-    def forward(self, src: Tensor, tgt: Tensor, src_mask: Optional[Tensor] = None,
-                 src_key_padding_mask: Optional[Tensor] = None,
-                 src_is_causal: Optional[bool] = None) -> Tensor:
+    def forward(self, src: Tensor, src_mask: Optional[Tensor] = None,
+                src_key_padding_mask: Optional[Tensor] = None,
+                src_is_causal: Optional[bool] = None) -> Tensor:
         """Take in and process masked source/target sequences.
 
         Args:
@@ -139,15 +139,7 @@ class KernelTransformer(Module):
             >>> # xdoctest: +SKIP
             >>> output = transformer_model(src, tgt, src_mask=src_mask, tgt_mask=tgt_mask)
         """
-        is_batched = src.dim() == 3
-        if not self.batch_first and src.size(1) != tgt.size(1) and is_batched:
-            raise RuntimeError("the batch number of src and tgt must be equal")
-        elif self.batch_first and src.size(0) != tgt.size(0) and is_batched:
-            raise RuntimeError("the batch number of src and tgt must be equal")
-
-        if src.size(-1) != self.d_model or tgt.size(-1) != self.d_model:
-            raise RuntimeError("the feature number of src and tgt must be equal to d_model")
-        
+       
         output = self.encoder(src, mask=src_mask, src_key_padding_mask=src_key_padding_mask,
                               is_causal=src_is_causal)
         return output
@@ -738,6 +730,7 @@ class KernelTransformerEncoder(Module):
             check_other=False,
         )
 
+        output = src
         first_layer = self.layers[0]
         batch_first = first_layer.self_attn.batch_first
         src_key_padding_mask_for_layers = src_key_padding_mask
@@ -752,18 +745,4 @@ class KernelTransformerEncoder(Module):
 
         if self.norm is not None:
             output = self.norm(output)
-    
-class SignalEmbedding(Module):
-    def __init__(self, window_size:int, embed_dim:int=512, device=None, dtype=None) -> None:
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        self.conv1d = Conv1d(in_channels=1,
-                             out_channels=embed_dim,
-                             kernel_size=window_size,
-                             stride=window_size,
-                             **factory_kwargs)
-
-    def forward(self, input:Tensor) -> Tensor:
-        x = input.permute(0, 2, 1)
-        x = self.conv1d(x)
-        x = x.permute(0, 2, 1)
-        return x
+        return output
