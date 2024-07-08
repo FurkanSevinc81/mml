@@ -10,6 +10,9 @@ from collections import OrderedDict
 import numpy as np
 
 def summary(model, input_size, batch_size=-1, device=torch.device('cuda:0'), dtypes=None):
+    if device.type == 'cuda' and not torch.cuda.is_available():
+        print('Warning: CUDA is not available. Falling back to CPU.')
+        device = torch.device('cpu')
     result, params_info = summary_string(
         model, input_size, batch_size, device, dtypes)
     print(result)

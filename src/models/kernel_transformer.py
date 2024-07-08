@@ -9,6 +9,7 @@ from layers.kernel_transformer import KernelTransformer
 from typing import Dict, Any
 from .model_utils import summary
 
+
 embed_config_basic = {
     'window_size': 10,
     'max_len': 2816,
