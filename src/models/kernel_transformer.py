@@ -1,5 +1,6 @@
 import torch
-from torch.nn import Module, Conv1d
+from torch.nn import Module, Conv1d, Parameter, Linear, Dropout, ReLU, Sequential
+from torch.nn.init import xavier_normal_
 from torch import Tensor
 import torch.nn.functional as F
 import math
@@ -15,12 +16,77 @@ embed_config_basic = {
     'max_len': 2816,
 }
 
-default_kernerl_transformer_config = {
+"""
+    In terms of size and parameter count this config 
+    is the same as the base model described in the 
+    original Transformer paper.
+"""
+kernerl_transformer_config_base = {
     'kernel_function': kops.ExponentialKernel(),  # This should be set separately as it's a Callable
     'd_model': 512,
     'nhead': 8,
-    'num_layers': 16,
+    'num_layers': 6,
     'dim_feedforward': 2048,
+    'dropout': 0.1,
+    'activation': F.relu,
+    'custom_encoder': None,
+    'layer_norm_eps': 1e-5,
+    'batch_first': True,
+    'norm_first': True,
+    'bias': True,
+    'device': None,
+    'dtype': None
+}
+
+
+kernerl_transformer_config_small = {
+    'kernel_function': None,  # This should be set separately as it's a Callable
+    'd_model': 256,
+    'nhead': 1,#4,
+    'num_layers': 1,#4,
+    'dim_feedforward': 1024,
+    'dropout': 0.1,
+    'activation': F.relu,
+    'custom_encoder': None,
+    'layer_norm_eps': 1e-5,
+    'batch_first': True,
+    'norm_first': True,
+    'bias': True,
+    'device': None,
+    'dtype': None
+}
+
+"""
+    In terms of size and parameter count this config 
+    is the same as the base BERT and ViT model.
+"""
+kernerl_transformer_config_medium = {
+    'kernel_function': None,  # This should be set separately as it's a Callable
+    'd_model': 768,
+    'nhead': 12,
+    'num_layers': 12,
+    'dim_feedforward': 3072,
+    'dropout': 0.1,
+    'activation': F.relu,
+    'custom_encoder': None,
+    'layer_norm_eps': 1e-5,
+    'batch_first': True,
+    'norm_first': True,
+    'bias': True,
+    'device': None,
+    'dtype': None
+}
+
+"""
+    In terms of size and parameter count this config 
+    is the same as the base BERT and ViT model.
+"""
+kernerl_transformer_config_large= {
+    'kernel_function': None,  # This should be set separately as it's a Callable
+    'd_model': 1024,
+    'nhead': 16,
+    'num_layers': 24,
+    'dim_feedforward': 4096,
     'dropout': 0.1,
     'activation': F.relu,
     'custom_encoder': None,
@@ -44,10 +110,17 @@ def positional_encoding_sin_cos(embed_dim:int, max_seq_len:int) -> Tensor:
 
 class KernelTransformerModel(Module):
 
-    def __init__(self, transformer_config: Dict[str, Any], embed_config: Dict[str, Any]):
+    def __init__(self, use_cls: bool, transformer_config: Dict[str, Any], embed_config: Dict[str, Any]):
         super().__init__()
+        
         self.transformer_config = transformer_config
         self.embedding_config = embed_config
+        self.use_cls = use_cls
+        if self.use_cls:
+            self.embedding_config['max_len'] += 1
+            self.cls_token = Parameter(torch.empty(1, 1, self.transformer_config['d_model']))
+            torch.nn.init.xavier_normal_(self.cls_token)
+            self.classification_head = self._create_classification_head()
         self.embeddings = self._create_embeddings()
         self.positional_encoding = self._create_positional_encodings()
         self.model = self._create_model()
@@ -59,23 +132,52 @@ class KernelTransformerModel(Module):
                                **self.embedding_config)
                                
     def _create_positional_encodings(self):
+        c = 1 if self.use_cls else 0
         return positional_encoding_sin_cos(embed_dim=self.transformer_config['d_model'],
-                                           max_seq_len=self.embeddings.expected_len
+                                           max_seq_len=self.embeddings.expected_len+c
                                            )
     def _create_model(self):
         return KernelTransformer(**self.transformer_config)
     
-    def forward(self, input):
+    def _create_classification_head(self):
+        if not self.use_cls:
+            return None
+        return BinaryClassificationHead(input_dim=self.transformer_config['d_model'],
+                                        hidden_dim=2)
+    
+    def forward(self, input: Tensor) -> Tensor:
         x = self.embeddings(input)
-        assert x.size(-2) == self.positional_encoding.size(0),(
-            "Mismatch in sequence length between embedded input and positional encoding. "
-            f"Embedded input sequence length: {x.size(-2)}, "
-            f"Positional encoding length: {self.positional_encoding.size(0)}"
-)
+        is_batched = input.dim() == 3
+        if self.transformer_config['batch_first'] and is_batched:
+            B = x.size(0)
+        elif not self.transformer_config['batch_first'] and is_batched:
+            B = x.size(1)
+
+        if self.use_cls: 
+            x = self._prepend_cls(x, B, is_batched)
         x = x + self.positional_encoding
-        output = self.model(x)
+        x = self.model(x)
+        if self.use_cls:
+            cls_token = self._get_cls(x, is_batched)
+            output = self.classification_head(cls_token)
         return output
     
+    def _prepend_cls(self, input:Tensor, batch:int, is_batched:bool) -> Tensor:
+        if is_batched:
+            x, y, dim = (batch, -1, 1) if self.transformer_config['batch_first'] else (-1, batch, 0)
+            cls_token = self.cls_token.expand(x, y, -1)
+        else:
+            dim = 0
+            cls_token = self.cls_token.unsqueeze(0)
+        #cls_token = cls_token.requires_grad()
+        return torch.cat((cls_token, input), dim=dim)
+    
+    def _get_cls(self, input:int, is_batched:bool) -> Tensor:
+        if is_batched:
+            cls_token = input[:, 0, :] if self.transformer_config['batch_first'] else input[0, :, :]
+            return cls_token
+        return input[0, :]
+
     def summary(self):
         input_shape = (self.embedding_config['max_len'], 1)
         return summary(self, input_shape)
@@ -104,3 +206,55 @@ class SignalEmbedding(Module):
             x = self.conv1d(x)
             x = x.permute(1, 0)
         return x
+
+class BinaryClassificationHead(Module):
+    def __init__(self, input_dim:int=512, hidden_dim:int=None, dropout_rate:float=0.1):
+        super().__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+
+        layers = []
+
+        if hidden_dim is not None:
+            layers.extend([
+                Linear(input_dim, hidden_dim),
+                ReLU(),
+                Dropout(dropout_rate)
+            ])
+            input_dim = hidden_dim
+
+        layers.append(Linear(input_dim, 1))
+
+        self.classifier = Sequential(*layers)
+
+    def forward(self, input:Tensor) -> Tensor:
+        return self.classifier(input)
+
+
+
+class ClassificationHead(Module):
+    def __init__(self, input_dim:int=512, num_classes:int=2, hidden_dim:int=None, dropout_rate:float=0.1):
+        super().__init__()
+        self.input_dim = input_dim
+        self.num_classes = num_classes
+        self.hidden_dim = hidden_dim
+
+        layers = []
+
+        if hidden_dim is not None:
+            layers.extend([
+                Linear(input_dim, hidden_dim),
+                ReLU(),
+                Dropout(dropout_rate)
+            ])
+            input_dim = hidden_dim
+
+        layers.append(Linear(input_dim, num_classes))
+
+        self.classifier = Sequential(*layers)
+
+    def forward(self, input:Tensor) -> Tensor:
+        return self.classifier(input)
+        """if self.num_classes == 2:
+            return torch.sigmoid(logits)
+        return torch.softmax(logits, dim=-1)"""

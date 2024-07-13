@@ -482,27 +482,3 @@ def kernel_multi_head_attention_forward(
         # squeeze the output if input was unbatched
         attn_output = attn_output.squeeze(1)
     return attn_output, attn_output_weights
-
-"""   
-def scaled_dot_product_attention(query: Tensor,
-                                 key: Tensor,
-                                 value:Tensor,
-                                 attn_mask: Optional[Tensor] = None,
-                                 is_causal: bool = False,
-                                 dropout_p = 0.0) -> Tensor:
-     B, Nt, E = query.shape
-     if is_causal:
-        assert attn_mask is None
-        L, S = Nt, key.size(-2)
-        attn_mask = create_causal_mask(L, S, query.dtype)
-     
-     q_scaled = query / math.sqrt(E)
-     if attn_mask is not None:
-         attn_output_weights = torch.baddbmm(attn_mask, q_scaled, key.transpose(-2, -1))
-     else:
-         attn_output_weights = torch.bmm(q_scaled, key.transpose(-2, -1))
-     attn_output_weights = torch.softmax(attn_output_weights, dim=-1)
-     if dropout_p > 0.0:
-         attn_output_weights = torch.dropout(attn_output_weights, p=dropout_p)
-     return torch.matmul(attn_output_weights, value)
-"""
