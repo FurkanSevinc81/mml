@@ -27,9 +27,8 @@ from torch.utils.data import Dataset, DataLoader
 
 
 class BioVid_PartA_bio(Dataset):
-    def __init__(self, csv_file: str, root_dir: str, biosignals_filtered: bool=True,
-                 subject_exclude=None, classes=None, modalities=None, 
-                 transform=None, dtype='float32') -> None:
+    def __init__(self, csv_file: str, root_dir: str, biosignals_filtered: bool=True, 
+                 classes=None, modalities=None, transform=None, dtype='float32') -> None:
         """
             Args:
                 csv_file (string): Path to the csv file with the indexing (sample.csv)
@@ -53,10 +52,10 @@ class BioVid_PartA_bio(Dataset):
 
         self.biosignals_dir = os.path.join(root_dir, biosignals)
 
-        if subject_exclude is not None:
-            if isinstance(subject_exclude, int):
-                subject_exclude = [subject_exclude]
-            self.samples_index = self.samples_index[~self.samples_index['subject_id'].isin(subject_exclude)]
+        self.training = False
+
+        self.val_samples_index = None
+        self.train_samples_index = None
 
         if classes is not None:
             assert len(classes) > 1, f"Required at least 2 classes. Only {len(classes)} were given."
@@ -70,7 +69,11 @@ class BioVid_PartA_bio(Dataset):
             self.modalities = modalities 
         
     def __len__(self) -> int:
-        return len(self.samples_index)
+        if self.training:
+            samples_index = self.train_samples_index
+        else:
+            samples_index = self.val_samples_index
+        return len(samples_index)
     
     def __getitem__(self, index):
         if isinstance(index, int):
@@ -86,8 +89,12 @@ class BioVid_PartA_bio(Dataset):
         return [self._load_sample(index) for index in indices]
     
     def _load_sample(self, index):
-        sample_path = os.path.join(self.samples_index.iloc[index, 1],
-                                    self.samples_index.iloc[index,5])
+        if self.training:
+            samples_index = self.train_samples_index
+        else:
+            samples_index = self.val_samples_index
+        sample_path = os.path.join(samples_index.iloc[index, 1],
+                                    samples_index.iloc[index,5])
         biosignal_path = os.path.join(self.biosignals_dir, sample_path + '_bio.csv')
         df_biosignals = pd.read_csv(biosignal_path, sep='\t')
         label = self.samples_index.iloc[index, 2]
@@ -97,6 +104,18 @@ class BioVid_PartA_bio(Dataset):
         if self.transform:
             sample = self.transform(sample)
         return sample
+    
+    def loso_split(self, exclude_subject) -> None:
+        if isinstance(exclude_subject, int):
+            exclude_subject = [exclude_subject]
+        self.train_samples_index = self.samples_index[~self.samples_index['subject_id'].isin(exclude_subject)]
+        self.val_samples_index = self.samples_index[self.samples_index['subject_id'].isin(exclude_subject)]
+
+    def train(self):
+        self.training = True
+    
+    def val(self):
+        self.training = False
 
 class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
