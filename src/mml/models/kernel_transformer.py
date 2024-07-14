@@ -4,9 +4,8 @@ from torch.nn.init import xavier_normal_
 from torch import Tensor
 import torch.nn.functional as F
 import math
-import utils.ops as ops
-import utils.kernel_functions as kops
-from layers.kernel_transformer import KernelTransformer
+from ..utils import kernel_functions as kops
+from ..layers.kernel_transformer import KernelTransformer
 from typing import Dict, Any
 from .model_utils import summary
 
@@ -100,6 +99,7 @@ kernerl_transformer_config_large= {
 
 
 def positional_encoding_sin_cos(embed_dim:int, max_seq_len:int) -> Tensor:
+        # TODO select device
         position = torch.arange(max_seq_len).unsqueeze(1).float()
         div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim))
         
@@ -185,6 +185,7 @@ class KernelTransformerModel(Module):
 class SignalEmbedding(Module):
 
     def __init__(self, window_size:int, max_len:int, embed_dim:int=512, device=None, dtype=None) -> None:
+        # TODO device dtype
         super().__init__()
         factory_kwargs = {'device': device, 'dtype': dtype}
         self.embed_dim = embed_dim
@@ -208,8 +209,10 @@ class SignalEmbedding(Module):
         return x
 
 class BinaryClassificationHead(Module):
-    def __init__(self, input_dim:int=512, hidden_dim:int=None, dropout_rate:float=0.1):
+    def __init__(self, input_dim:int=512, hidden_dim:int=None, 
+                 dropout_rate:float=0.1, device=None, dtype=None):
         super().__init__()
+        factory_kwargs = {'device': device, 'dtype': dtype}
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
@@ -226,6 +229,7 @@ class BinaryClassificationHead(Module):
         layers.append(Linear(input_dim, 1))
 
         self.classifier = Sequential(*layers)
+        self.to(**factory_kwargs)
 
     def forward(self, input:Tensor) -> Tensor:
         return self.classifier(input)

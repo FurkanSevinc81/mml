@@ -3,20 +3,15 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import BCEWithLogitsLoss
-from src.utils.kernel_functions import ExponentialKernel, RBFKernel
-from src.data import biovid
-import src.models.kernel_transformer as models
+from mml.utils.kernel_functions import ExponentialKernel, RBFKernel
+from mml.data import biovid
+import mml.models.kernel_transformer as models
 import os
 import time
 from tqdm import tqdm
 
-def debug(loss, model, label, output, optimizer):
-    print('Loss shape:\t', loss.shape)
-    print('Training mode:\t', model.training)
-    print('Labels type:\t', label.dtype)
-    print(f"Output shape: {output.shape}, Label shape: {label.shape}")
-    print('Optimiyer params:\t', optimizer.param_groups)
-    print('Output grads:\t', output.requires_grad)  
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 
 ROOT_DIR_DAT = "F:/Users/Furkan/Documents/Master Thesis/Artificial Emotional Intelligence/code/mml/datasets/BioVid/PartA"
 CSV_FILE = os.path.join(ROOT_DIR_DAT, 'samples.csv')
@@ -53,12 +48,12 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         
         gsr = sample['gsr']
+        gsr = gsr.to(device)
         label = sample['label']
         label[label == 4] = 1
         label = label.float().unsqueeze(1)
         
         output = model(gsr)
-        #output = torch.argmax(output, dim=1)
         output = output.float()
         loss = criterion(output, label)
         loss.backward()

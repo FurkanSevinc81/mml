@@ -1,8 +1,8 @@
 import unittest
 import torch
 import numpy as np
-import src.utils.kernel_functions as kops
-import src.utils.ops as ops
+import mml.utils.kernel_functions as kops
+import mml.utils.ops as ops
 import torch.nn.functional as F
 from torch.nn.modules.transformer import _generate_square_subsequent_mask
 

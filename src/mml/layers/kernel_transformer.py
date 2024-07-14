@@ -6,8 +6,8 @@ from typing import Optional, Any, Union, Callable, Tuple
 import torch.nn.functional as F
 from torch.nn import Module, Parameter, LayerNorm, Dropout, Linear, Conv1d
 from torch.nn.modules.linear import NonDynamicallyQuantizableLinear
-import utils.ops as ops
-import utils.kernel_functions as kops
+from ..utils import ops
+from ..utils import kernel_functions as kops
 from torch.nn.init import xavier_uniform_, constant_, xavier_normal_
 from torch.nn.modules.transformer import _get_seq_len, _detect_is_causal_mask, \
                                          _get_clones, _get_activation_fn, \
