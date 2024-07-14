@@ -112,13 +112,15 @@ class KernelTransformerModel(Module):
 
     def __init__(self, use_cls: bool, transformer_config: Dict[str, Any], embed_config: Dict[str, Any]):
         super().__init__()
-        
+        self.factory_kwargs = {'device': transformer_config['device'],
+                               'dtype': transformer_config['dtype']}
         self.transformer_config = transformer_config
         self.embedding_config = embed_config
         self.use_cls = use_cls
         if self.use_cls:
             self.embedding_config['max_len'] += 1
-            self.cls_token = Parameter(torch.empty(1, 1, self.transformer_config['d_model']))
+            self.cls_token = Parameter(torch.empty(1, 1, self.transformer_config['d_model'], 
+                                       **self.factory_kwargs))
             torch.nn.init.xavier_normal_(self.cls_token)
             self.classification_head = self._create_classification_head()
         self.embeddings = self._create_embeddings()
@@ -127,8 +129,7 @@ class KernelTransformerModel(Module):
 
     def _create_embeddings(self):
         return SignalEmbedding(embed_dim=self.transformer_config['d_model'],
-                               device=self.transformer_config['device'],
-                               dtype=self.transformer_config['dtype'],
+                               **self.factory_kwargs,
                                **self.embedding_config)
                                
     def _create_positional_encodings(self):
@@ -143,7 +144,8 @@ class KernelTransformerModel(Module):
         if not self.use_cls:
             return None
         return BinaryClassificationHead(input_dim=self.transformer_config['d_model'],
-                                        hidden_dim=2)
+                                        hidden_dim=2,
+                                        **self.factory_kwargs)
     
     def forward(self, input: Tensor) -> Tensor:
         x = self.embeddings(input)
