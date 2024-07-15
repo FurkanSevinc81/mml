@@ -110,7 +110,8 @@ def positional_encoding_sin_cos(embed_dim:int, max_seq_len:int, device=None, dty
 
 class KernelTransformerModel(Module):
 
-    def __init__(self, use_cls: bool, transformer_config: Dict[str, Any], embed_config: Dict[str, Any]):
+    def __init__(self, use_cls: bool, cls_hiden_dim:256, 
+                 transformer_config: Dict[str, Any], embed_config: Dict[str, Any]):
         super().__init__()
         self.factory_kwargs = {'device': transformer_config['device'],
                                'dtype': transformer_config['dtype']}
@@ -122,7 +123,7 @@ class KernelTransformerModel(Module):
             self.cls_token = Parameter(torch.empty(1, 1, self.transformer_config['d_model'], 
                                        **self.factory_kwargs))
             torch.nn.init.xavier_normal_(self.cls_token)
-            self.classification_head = self._create_classification_head()
+            self.classification_head = self._create_classification_head(cls_hiden_dim)
         self.embeddings = self._create_embeddings()
         self.positional_encoding = self._create_positional_encodings()
         self.model = self._create_model()
@@ -141,11 +142,11 @@ class KernelTransformerModel(Module):
     def _create_model(self):
         return KernelTransformer(**self.transformer_config)
     
-    def _create_classification_head(self):
+    def _create_classification_head(self, hidden_dim):
         if not self.use_cls:
             return None
         return BinaryClassificationHead(input_dim=self.transformer_config['d_model'],
-                                        hidden_dim=2,
+                                        hidden_dim=hidden_dim,
                                         **self.factory_kwargs)
     
     def forward(self, input: Tensor) -> Tensor:
