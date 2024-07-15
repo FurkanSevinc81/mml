@@ -98,12 +98,12 @@ kernerl_transformer_config_large= {
 }
 
 
-def positional_encoding_sin_cos(embed_dim:int, max_seq_len:int) -> Tensor:
+def positional_encoding_sin_cos(embed_dim:int, max_seq_len:int, device=None, dtype=None) -> Tensor:
         # TODO select device
         position = torch.arange(max_seq_len).unsqueeze(1).float()
         div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim))
         
-        pos_encoding = torch.zeros(max_seq_len, embed_dim)
+        pos_encoding = torch.zeros(max_seq_len, embed_dim, device=device, dtype=dtype)
         pos_encoding[:, 0::2] = torch.sin(position * div_term)
         pos_encoding[:, 1::2] = torch.cos(position * div_term)
         return pos_encoding
@@ -135,7 +135,8 @@ class KernelTransformerModel(Module):
     def _create_positional_encodings(self):
         c = 1 if self.use_cls else 0
         return positional_encoding_sin_cos(embed_dim=self.transformer_config['d_model'],
-                                           max_seq_len=self.embeddings.expected_len+c
+                                           max_seq_len=self.embeddings.expected_len+c,
+                                           **self.factory_kwargs
                                            )
     def _create_model(self):
         return KernelTransformer(**self.transformer_config)
