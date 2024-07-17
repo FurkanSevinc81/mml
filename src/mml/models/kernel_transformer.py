@@ -98,19 +98,32 @@ kernerl_transformer_config_large= {
     'dtype': None
 }
 
-
-def positional_encoding_sin_cos(embed_dim:int, max_seq_len:int, device=None, dtype=None) -> Tensor:
-        position = torch.arange(max_seq_len).unsqueeze(1).float()
+class PositionalEncoding(Module):
+    def __init__(self, embed_dim:int, max_seq_len:int = 2820, 
+                 dropout:float = 0.1, scale:bool = True, 
+                 device=None, dtype=None) -> None:
+        super().__init__()
+        self.dropout = Dropout(dropout)
+        self.scale = scale
+        self.embed_dim = embed_dim
+        position = torch.arange(0, max_seq_len).float().unsqueeze(1)
         div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim))
-        
+            
         pos_encoding = torch.zeros(max_seq_len, embed_dim, device=device, dtype=dtype)
         pos_encoding[:, 0::2] = torch.sin(position * div_term)
         pos_encoding[:, 1::2] = torch.cos(position * div_term)
-        return pos_encoding
+        pos_encoding = pos_encoding.unsqueeze(0)
+        self.register_buffer('PE', pos_encoding)
+
+    def forward(self, x):
+        if self.scale:
+            x = x * math.sqrt(self.embed_dim)
+        x = x + self.PE[:, :x.size(1), :]
+        return self.dropout(x)
 
 class KernelTransformerModel(Module):
 
-    def __init__(self, use_cls: bool, cls_hiden_dim:int, class_activation,
+    def __init__(self, use_cls: bool, class_hiden_dim:int, class_activation,
                  transformer_config: Dict[str, Any], embed_config: Dict[str, Any],
                  use_bn:bool=False
                 ):
@@ -118,34 +131,31 @@ class KernelTransformerModel(Module):
         self.factory_kwargs = {'device': transformer_config['device'],
                                'dtype': transformer_config['dtype']}
         self.transformer_config = transformer_config
-        self.embedding_config = embed_config
+        self.embed_config = embed_config
         self.use_bn = use_bn
-        if use_bn:
-            self.batch_norm = BatchNorm1d(self.transformer_config['d_model'], **self.factory_kwargs)
         self.use_cls = use_cls
-        if self.use_cls:
-            self.embedding_config['max_len'] += 1
-            self.cls_token = Parameter(torch.empty(1, 1, self.transformer_config['d_model'], 
-                                       **self.factory_kwargs))
-            torch.nn.init.xavier_normal_(self.cls_token)
-            self.classification_head = self._create_classification_head(cls_hiden_dim, class_activation)
-        else:
-            self.classification_head = self._create_classification_head(cls_hiden_dim, class_activation)
         self.embeddings = self._create_embeddings()
         self.positional_encoding = self._create_positional_encodings()
         self.model = self._create_model()
+        
+
+        if use_bn:
+            self.batch_norm = BatchNorm1d(self.transformer_config['d_model'], **self.factory_kwargs)
+        if self.use_cls:
+            self.cls_token = self._create_cls_token()
+
+        self.classification_head = self._create_classification_head(class_hiden_dim, class_activation)
+
 
     def _create_embeddings(self):
         return SignalEmbedding(embed_dim=self.transformer_config['d_model'],
                                **self.factory_kwargs,
-                               **self.embedding_config)
+                               **self.embed_config)
                                
     def _create_positional_encodings(self):
-        c = 1 if self.use_cls else 0
-        return positional_encoding_sin_cos(embed_dim=self.transformer_config['d_model'],
-                                           max_seq_len=self.embeddings.expected_len+c,
-                                           **self.factory_kwargs
-                                           )
+        return PositionalEncoding(embed_dim=self.transformer_config['d_model'],
+                                  **self.factory_kwargs)
+    
     def _create_model(self):
         return KernelTransformer(**self.transformer_config)
     
@@ -157,21 +167,21 @@ class KernelTransformerModel(Module):
                                      hidden_dim=hidden_dim, activation=activation, 
                                      **self.factory_kwargs)
     
+    def _create_cls_token(self):
+        cls_token = Parameter(torch.empty(1, 1, self.transformer_config['d_model'], 
+                                       **self.factory_kwargs))
+        torch.nn.init.xavier_normal_(cls_token)
+        return cls_token
+    
     def forward(self, input: Tensor) -> Tensor:
-        x = self.embeddings(input)
-
         is_batched = input.dim() == 3
-        if self.transformer_config['batch_first'] and is_batched:
-            B = x.size(0)
-        elif not self.transformer_config['batch_first'] and is_batched:
-            B = x.size(1)
+        if is_batched and not self.transformer_config['batch_first']:
+            input = input.transpose(0, 1)
 
-        if self.use_cls: 
-            # TODO UnboundLocalError: local variable 'B' referenced before assignment
-            x = self._prepend_cls(x, B, is_batched)
-
-        x = x + self.positional_encoding
-
+        x = self.embeddings(input)
+        if self.use_cls:
+            x = self._prepend_cls(x, is_batched)
+        x = self.positional_encoding(x)
         x = self.model(x)
 
         if self.use_bn:
@@ -186,21 +196,19 @@ class KernelTransformerModel(Module):
             output = self.classification_head(x)
         return output
     
-    def _prepend_cls(self, input:Tensor, batch:int, is_batched:bool) -> Tensor:
+    def _prepend_cls(self, input:Tensor, is_batched:bool) -> Tensor:
         if is_batched:
-            x, y, dim = (batch, -1, 1) if self.transformer_config['batch_first'] else (-1, batch, 0)
-            cls_token = self.cls_token.expand(x, y, -1)
+            dim = 1
+            cls_token = self.cls_token.expand(input.size(0), -1, -1)
         else:
             dim = 0
-            cls_token = self.cls_token.unsqueeze(0)
-        #cls_token = cls_token.requires_grad()
+            cls_token = self.cls_token.squeeze(0)
         return torch.cat((cls_token, input), dim=dim)
     
     def _get_cls(self, input:int, is_batched:bool) -> Tensor:
         if is_batched:
-            cls_token = input[:, 0, :] if self.transformer_config['batch_first'] else input[0, :, :]
-            return cls_token
-        return input[0, :]
+            return input[:, 0, :]
+        return input[0]
 
     def summary(self):
         input_shape = (self.embedding_config['max_len'], 1)
@@ -212,10 +220,43 @@ class KernelTransformerModel(Module):
     def load_checkpoint(self, path):
         load_from_checkpoint(self, path)
 
+
+class KernelTransformerPretrain(Module):
+    def __init__(self, transformer_config: Dict[str, Any], embed_config: Dict[str, Any]):
+        super().__init__()
+        self.factory_kwargs = {'device': transformer_config['device'],
+                               'dtype': transformer_config['dtype']}
+        self.transformer_config = transformer_config
+        self.embed_config = embed_config
+        self.embeddings = self._create_embeddings()
+        self.positional_encoding = self._create_positional_encodings()
+        self.model = self._create_model()
+
+    def forward(self, input: Tensor, input_mask:None) -> Tensor:
+        is_batched = input.dim() == 3
+        if is_batched and not self.transformer_config['batch_first']:
+            input = input.transpose(0, 1)
+        x = self.embeddings(input)
+        x = self.positional_encoding(x)
+
+        output = self.model(x)
+        return output
+    
+    def _create_embeddings(self):
+        return SignalEmbedding(embed_dim=self.transformer_config['d_model'],
+                               **self.factory_kwargs,
+                               **self.embedding_config)
+
+    def _create_positional_encodings(self):
+        return PositionalEncoding(embed_dim=self.transformer_config['d_model'],
+                                  **self.factory_kwargs)
+    
+    def _create_model(self):
+        return KernelTransformer(**self.transformer_config)
+
 class SignalEmbedding(Module):
 
     def __init__(self, window_size:int, max_len:int, embed_dim:int=512, device=None, dtype=None) -> None:
-        # TODO device dtype
         super().__init__()
         factory_kwargs = {'device': device, 'dtype': dtype}
         self.embed_dim = embed_dim
@@ -224,7 +265,7 @@ class SignalEmbedding(Module):
                              kernel_size=window_size,
                              stride=window_size,
                              **factory_kwargs)
-        self.expected_len = math.floor((max_len + 0 - window_size) / window_size) + 1
+        #self.expected_len = math.floor((max_len + 0 - window_size) / window_size) + 1
               
     def forward(self, input:Tensor) -> Tensor:
         is_batched = input.dim() == 3
@@ -259,13 +300,12 @@ class ClassificationHeadCLS(Module):
 
         layers.append(Linear(input_dim, 1))
 
+        # TODO maybe init with groot
         self.classifier = Sequential(*layers)
         self.to(**factory_kwargs)
 
     def forward(self, input:Tensor) -> Tensor:
         return self.classifier(input)
-
-
 
 class ClassificationHeadSeq(Module):
     def __init__(self, input_dim:int=512, num_hidden_layers:int=1, 

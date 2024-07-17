@@ -68,20 +68,17 @@ class KernelTransformer(Module):
             encoder_norm = LayerNorm(d_model, eps=layer_norm_eps, bias=bias, **factory_kwargs)
             self.encoder = KernelTransformerEncoder(encoder_layer, num_layers, encoder_norm)
 
+        self._reset_parameters()
+
     def forward(self, src: Tensor, src_mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
                 src_is_causal: Optional[bool] = None) -> Tensor:
-        """Take in and process masked source/target sequences.
+        """Take in and process masked source sequences.
 
         Args:
             src: the sequence to the encoder (required).
-            tgt: the sequence to the decoder (required).
             src_mask: the additive mask for the src sequence (optional).
-            tgt_mask: the additive mask for the tgt sequence (optional).
-            memory_mask: the additive mask for the encoder output (optional).
             src_key_padding_mask: the Tensor mask for src keys per batch (optional).
-            tgt_key_padding_mask: the Tensor mask for tgt keys per batch (optional).
-            memory_key_padding_mask: the Tensor mask for memory keys per batch (optional).
             src_is_causal: If specified, applies a causal mask as ``src_mask``.
                 Default: ``None``; try to detect a causal mask.
                 Warning:
@@ -89,39 +86,17 @@ class KernelTransformer(Module):
                 the causal mask. Providing incorrect hints can result in
                 incorrect execution, including forward and backward
                 compatibility.
-            tgt_is_causal: If specified, applies a causal mask as ``tgt_mask``.
-                Default: ``None``; try to detect a causal mask.
-                Warning:
-                ``tgt_is_causal`` provides a hint that ``tgt_mask`` is
-                the causal mask. Providing incorrect hints can result in
-                incorrect execution, including forward and backward
-                compatibility.
-            memory_is_causal: If specified, applies a causal mask as
-                ``memory_mask``.
-                Default: ``False``.
-                Warning:
-                ``memory_is_causal`` provides a hint that
-                ``memory_mask`` is the causal mask. Providing incorrect
-                hints can result in incorrect execution, including
-                forward and backward compatibility.
-
         Shape:
             - src: :math:`(S, E)` for unbatched input, :math:`(S, N, E)` if `batch_first=False` or
               `(N, S, E)` if `batch_first=True`.
-            - tgt: :math:`(T, E)` for unbatched input, :math:`(T, N, E)` if `batch_first=False` or
-              `(N, T, E)` if `batch_first=True`.
             - src_mask: :math:`(S, S)` or :math:`(N\cdot\text{num\_heads}, S, S)`.
-            - tgt_mask: :math:`(T, T)` or :math:`(N\cdot\text{num\_heads}, T, T)`.
-            - memory_mask: :math:`(T, S)`.
             - src_key_padding_mask: :math:`(S)` for unbatched input otherwise :math:`(N, S)`.
-            - tgt_key_padding_mask: :math:`(T)` for unbatched input otherwise :math:`(N, T)`.
-            - memory_key_padding_mask: :math:`(S)` for unbatched input otherwise :math:`(N, S)`.
 
-            Note: [src/tgt/memory]_mask ensures that position i is allowed to attend the unmasked
+            Note: src_mask ensures that position i is allowed to attend the unmasked
             positions. If a BoolTensor is provided, positions with ``True``
             are not allowed to attend while ``False`` values will be unchanged. If a FloatTensor
             is provided, it will be added to the attention weight.
-            [src/tgt/memory]_key_padding_mask provides specified elements in the key to be ignored by
+            src_key_padding_mask provides specified elements in the key to be ignored by
             the attention. If a BoolTensor is provided, the positions with the
             value of ``True`` will be ignored while the position with the value of ``False`` will be unchanged.
 
@@ -129,15 +104,13 @@ class KernelTransformer(Module):
               `(N, T, E)` if `batch_first=True`.
 
             Note: Due to the multi-head attention architecture in the transformer model,
-            the output sequence length of a transformer is same as the input sequence
-            (i.e. target) length of the decoder.
+            the output sequence length of a transformer is same as the input sequence.
 
-            where S is the source sequence length, T is the target sequence length, N is the
-            batch size, E is the feature number
+            where S is the source sequence length, N is the batch size, E is the feature number
 
         Examples:
             >>> # xdoctest: +SKIP
-            >>> output = transformer_model(src, tgt, src_mask=src_mask, tgt_mask=tgt_mask)
+            >>> output = transformer_model(src, src_mask=src_mask)
         """
        
         output = self.encoder(src, mask=src_mask, src_key_padding_mask=src_key_padding_mask,
