@@ -110,15 +110,18 @@ def positional_encoding_sin_cos(embed_dim:int, max_seq_len:int, device=None, dty
 
 class KernelTransformerModel(Module):
 
-    def __init__(self, use_cls: bool, cls_hiden_dim:256, class_activation,
-                 transformer_config: Dict[str, Any], embed_config: Dict[str, Any]
+    def __init__(self, use_cls: bool, cls_hiden_dim:int, class_activation,
+                 transformer_config: Dict[str, Any], embed_config: Dict[str, Any],
+                 use_bn:bool=False
                 ):
         super().__init__()
         self.factory_kwargs = {'device': transformer_config['device'],
                                'dtype': transformer_config['dtype']}
         self.transformer_config = transformer_config
         self.embedding_config = embed_config
-        self.batch_norm = BatchNorm1d(self.transformer_config['d_model'])
+        self.use_bn = use_bn
+        if use_bn:
+            self.batch_norm = BatchNorm1d(self.transformer_config['d_model'], **self.factory_kwargs)
         self.use_cls = use_cls
         if self.use_cls:
             self.embedding_config['max_len'] += 1
@@ -171,9 +174,10 @@ class KernelTransformerModel(Module):
 
         x = self.model(x)
 
-        x = x.permute(0, 2, 1)
-        x = self.batch_norm(x)
-        x = x.permute(0, 2, 1)
+        if self.use_bn:
+            x = x.permute(0, 2, 1)
+            x = self.batch_norm(x)
+            x = x.permute(0, 2, 1)
 
         if self.use_cls:
             cls_token = self._get_cls(x, is_batched)
