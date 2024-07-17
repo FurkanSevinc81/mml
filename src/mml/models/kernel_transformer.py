@@ -1,5 +1,6 @@
 import torch
-from torch.nn import Module, Conv1d, Parameter, Linear, Dropout, ReLU, Sequential
+from torch.nn import Module, Conv1d, Parameter, Linear, Dropout, \
+    ReLU, Sequential, AdaptiveAvgPool1d, LeakyReLU, GELU, ELU, BatchNorm1d
 from torch.nn.init import xavier_normal_
 from torch import Tensor
 import torch.nn.functional as F
@@ -7,7 +8,7 @@ import math
 from ..utils import kernel_functions as kops
 from ..layers.kernel_transformer import KernelTransformer
 from typing import Dict, Any
-from .model_utils import summary
+from .model_utils import summary, save_checkpoint, load_from_checkpoint
 
 
 embed_config_basic = {
@@ -99,7 +100,6 @@ kernerl_transformer_config_large= {
 
 
 def positional_encoding_sin_cos(embed_dim:int, max_seq_len:int, device=None, dtype=None) -> Tensor:
-        # TODO select device
         position = torch.arange(max_seq_len).unsqueeze(1).float()
         div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim))
         
@@ -110,20 +110,24 @@ def positional_encoding_sin_cos(embed_dim:int, max_seq_len:int, device=None, dty
 
 class KernelTransformerModel(Module):
 
-    def __init__(self, use_cls: bool, cls_hiden_dim:256, 
-                 transformer_config: Dict[str, Any], embed_config: Dict[str, Any]):
+    def __init__(self, use_cls: bool, cls_hiden_dim:256, class_activation,
+                 transformer_config: Dict[str, Any], embed_config: Dict[str, Any]
+                ):
         super().__init__()
         self.factory_kwargs = {'device': transformer_config['device'],
                                'dtype': transformer_config['dtype']}
         self.transformer_config = transformer_config
         self.embedding_config = embed_config
+        self.batch_norm = BatchNorm1d(self.transformer_config['d_model'])
         self.use_cls = use_cls
         if self.use_cls:
             self.embedding_config['max_len'] += 1
             self.cls_token = Parameter(torch.empty(1, 1, self.transformer_config['d_model'], 
                                        **self.factory_kwargs))
             torch.nn.init.xavier_normal_(self.cls_token)
-            self.classification_head = self._create_classification_head(cls_hiden_dim)
+            self.classification_head = self._create_classification_head(cls_hiden_dim, class_activation)
+        else:
+            self.classification_head = self._create_classification_head(cls_hiden_dim, class_activation)
         self.embeddings = self._create_embeddings()
         self.positional_encoding = self._create_positional_encodings()
         self.model = self._create_model()
@@ -142,15 +146,17 @@ class KernelTransformerModel(Module):
     def _create_model(self):
         return KernelTransformer(**self.transformer_config)
     
-    def _create_classification_head(self, hidden_dim):
+    def _create_classification_head(self, hidden_dim, activation):
         if not self.use_cls:
-            return None
-        return BinaryClassificationHead(input_dim=self.transformer_config['d_model'],
-                                        hidden_dim=hidden_dim,
-                                        **self.factory_kwargs)
+            return ClassificationHeadSeq(input_dim=self.transformer_config['d_model'],
+                                         hidden_dim=hidden_dim,**self.factory_kwargs)
+        return ClassificationHeadCLS(input_dim=self.transformer_config['d_model'],
+                                     hidden_dim=hidden_dim, activation=activation, 
+                                     **self.factory_kwargs)
     
     def forward(self, input: Tensor) -> Tensor:
         x = self.embeddings(input)
+
         is_batched = input.dim() == 3
         if self.transformer_config['batch_first'] and is_batched:
             B = x.size(0)
@@ -158,12 +164,22 @@ class KernelTransformerModel(Module):
             B = x.size(1)
 
         if self.use_cls: 
+            # TODO UnboundLocalError: local variable 'B' referenced before assignment
             x = self._prepend_cls(x, B, is_batched)
+
         x = x + self.positional_encoding
+
         x = self.model(x)
+
+        x = x.permute(0, 2, 1)
+        x = self.batch_norm(x)
+        x = x.permute(0, 2, 1)
+
         if self.use_cls:
             cls_token = self._get_cls(x, is_batched)
             output = self.classification_head(cls_token)
+        else:
+            output = self.classification_head(x)
         return output
     
     def _prepend_cls(self, input:Tensor, batch:int, is_batched:bool) -> Tensor:
@@ -185,6 +201,12 @@ class KernelTransformerModel(Module):
     def summary(self):
         input_shape = (self.embedding_config['max_len'], 1)
         return summary(self, input_shape)
+    
+    def save_checkpoint(self, name, path):
+        return save_checkpoint(self, name, path)
+
+    def load_checkpoint(self, path):
+        load_from_checkpoint(self, path)
 
 class SignalEmbedding(Module):
 
@@ -212,9 +234,10 @@ class SignalEmbedding(Module):
             x = x.permute(1, 0)
         return x
 
-class BinaryClassificationHead(Module):
+class ClassificationHeadCLS(Module):
     def __init__(self, input_dim:int=512, hidden_dim:int=None, 
-                 dropout_rate:float=0.1, device=None, dtype=None):
+                 activation=None, dropout_rate:float=0.1, 
+                 device=None, dtype=None):
         super().__init__()
         factory_kwargs = {'device': device, 'dtype': dtype}
         self.input_dim = input_dim
@@ -225,7 +248,7 @@ class BinaryClassificationHead(Module):
         if hidden_dim is not None:
             layers.extend([
                 Linear(input_dim, hidden_dim),
-                ReLU(),
+                activation, #GELU(), #LeakyReLU(), # ReLU
                 Dropout(dropout_rate)
             ])
             input_dim = hidden_dim
@@ -240,29 +263,31 @@ class BinaryClassificationHead(Module):
 
 
 
-class ClassificationHead(Module):
-    def __init__(self, input_dim:int=512, num_classes:int=2, hidden_dim:int=None, dropout_rate:float=0.1):
+class ClassificationHeadSeq(Module):
+    def __init__(self, input_dim:int=512, num_hidden_layers:int=1, 
+                 hidden_dim:int=None, dropout_rate:float=0.1,
+                 device=None, dtype=None):
         super().__init__()
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.avg_pool = AdaptiveAvgPool1d(1)
         self.input_dim = input_dim
-        self.num_classes = num_classes
         self.hidden_dim = hidden_dim
 
         layers = []
-
-        if hidden_dim is not None:
+        current_dim = input_dim
+        for _ in range(num_hidden_layers):
             layers.extend([
-                Linear(input_dim, hidden_dim),
-                ReLU(),
+                Linear(current_dim, hidden_dim),
+                LeakyReLU(), # ReLU
                 Dropout(dropout_rate)
             ])
-            input_dim = hidden_dim
-
-        layers.append(Linear(input_dim, num_classes))
-
+            current_dim = hidden_dim
+        layers.append(Linear(current_dim, 1))
         self.classifier = Sequential(*layers)
+        self.to(**factory_kwargs)
 
     def forward(self, input:Tensor) -> Tensor:
-        return self.classifier(input)
-        """if self.num_classes == 2:
-            return torch.sigmoid(logits)
-        return torch.softmax(logits, dim=-1)"""
+        x = self.avg_pool(input.transpose(1, 2))
+        x = x.squeeze(-1)
+        logits = self.classifier(x)
+        return logits
