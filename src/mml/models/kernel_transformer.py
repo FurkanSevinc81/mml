@@ -169,6 +169,7 @@ class KernelTransformerModel(Module):
     def _create_classification_head(self, hidden_dim, activation):
         if not self.use_cls:
             return ClassificationHeadSeq(input_dim=self.transformer_config['d_model'],
+                                         activation=activation, num_hidden_layers=0,
                                          hidden_dim=hidden_dim,**self.factory_kwargs)
         return ClassificationHeadCLS(input_dim=self.transformer_config['d_model'],
                                      hidden_dim=hidden_dim, activation=activation, 
@@ -315,9 +316,9 @@ class ClassificationHeadCLS(Module):
         return self.classifier(input)
 
 class ClassificationHeadSeq(Module):
-    def __init__(self, input_dim:int=512, num_hidden_layers:int=1, 
-                 hidden_dim:int=None, dropout_rate:float=0.1,
-                 device=None, dtype=None):
+    def __init__(self, input_dim:int=512, activation=None,
+                 num_hidden_layers:int=0, hidden_dim:int=None, 
+                 dropout_rate:float=0.1, device=None, dtype=None):
         super().__init__()
         factory_kwargs = {'device': device, 'dtype': dtype}
         self.avg_pool = AdaptiveAvgPool1d(1)
@@ -326,13 +327,14 @@ class ClassificationHeadSeq(Module):
 
         layers = []
         current_dim = input_dim
-        for _ in range(num_hidden_layers):
-            layers.extend([
-                Linear(current_dim, hidden_dim),
-                LeakyReLU(), # ReLU
-                Dropout(dropout_rate)
-            ])
-            current_dim = hidden_dim
+        if hidden_dim is not None:
+            for _ in range(num_hidden_layers):
+                layers.extend([
+                    Linear(current_dim, hidden_dim),
+                    activation, # ReLU
+                    Dropout(dropout_rate)
+                ])
+                current_dim = hidden_dim
         layers.append(Linear(current_dim, 1))
         self.classifier = Sequential(*layers)
         self.to(**factory_kwargs)
