@@ -16,6 +16,16 @@ embed_config_basic = {
     'max_len': 2816,
 }
 
+embed_config_medium = {
+    'window_size': 20,
+    'max_len': 2816,
+}
+
+embed_config_high = {
+    'window_size': 40,
+    'max_len': 2816,
+}
+
 """
     In terms of size and parameter count this config 
     is the same as the base model described in the 
@@ -42,8 +52,8 @@ kernerl_transformer_config_base = {
 kernerl_transformer_config_small = {
     'kernel_function': None,  # This should be set separately as it's a Callable
     'd_model': 256,
-    'nhead': 1,#4,
-    'num_layers': 1,#4,
+    'nhead': 4,
+    'num_layers': 4,
     'dim_feedforward': 1024,
     'dropout': 0.1,
     'activation': F.relu,
@@ -137,15 +147,12 @@ class KernelTransformerModel(Module):
         self.embeddings = self._create_embeddings()
         self.positional_encoding = self._create_positional_encodings()
         self.model = self._create_model()
-        
+        self.classification_head = self._create_classification_head(class_hiden_dim, class_activation)
 
         if use_bn:
             self.batch_norm = BatchNorm1d(self.transformer_config['d_model'], **self.factory_kwargs)
         if self.use_cls:
             self.cls_token = self._create_cls_token()
-
-        self.classification_head = self._create_classification_head(class_hiden_dim, class_activation)
-
 
     def _create_embeddings(self):
         return SignalEmbedding(embed_dim=self.transformer_config['d_model'],

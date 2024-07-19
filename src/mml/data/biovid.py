@@ -99,6 +99,7 @@ class BioVid_PartA_bio(Dataset):
         df_biosignals = pd.read_csv(biosignal_path, sep='\t')
         label = self.samples_index.iloc[index, 2]
         sample = {'label': label}
+        ##sample['id'] = samples_index.iloc[index, 0] 
         for mod in self.modalities:
             sample[mod] = df_biosignals[mod].to_numpy(dtype=self.dtype)
         if self.transform:
