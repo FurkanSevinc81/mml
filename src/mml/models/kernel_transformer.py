@@ -31,7 +31,7 @@ embed_config_high = {
     is the same as the base model described in the 
     original Transformer paper.
 """
-kernerl_transformer_config_base = {
+kernel_transformer_config_base = {
     'kernel_function': kops.ExponentialKernel(),  # This should be set separately as it's a Callable
     'd_model': 512,
     'nhead': 8,
@@ -49,7 +49,7 @@ kernerl_transformer_config_base = {
 }
 
 
-kernerl_transformer_config_small = {
+kernel_transformer_config_small = {
     'kernel_function': None,  # This should be set separately as it's a Callable
     'd_model': 256,
     'nhead': 4,
@@ -70,7 +70,7 @@ kernerl_transformer_config_small = {
     In terms of size and parameter count this config 
     is the same as the base BERT and ViT model.
 """
-kernerl_transformer_config_medium = {
+kernel_transformer_config_medium = {
     'kernel_function': None,  # This should be set separately as it's a Callable
     'd_model': 768,
     'nhead': 12,
