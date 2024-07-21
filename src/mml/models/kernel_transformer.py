@@ -110,7 +110,7 @@ kernerl_transformer_config_large= {
 
 class PositionalEncoding(Module):
     def __init__(self, embed_dim:int, max_seq_len:int = 2820, 
-                 dropout:float = 0.1, scale:bool = True, 
+                 dropout:float = 0.1, scale:bool = True,
                  device=None, dtype=None) -> None:
         super().__init__()
         self.dropout = Dropout(dropout)
@@ -189,13 +189,12 @@ class KernelTransformerModel(Module):
         x = self.embeddings(input)
         if self.use_cls:
             x = self._prepend_cls(x, is_batched)
-        x = self.positional_encoding(x)
-        x = self.model(x)
-
         if self.use_bn:
             x = x.permute(0, 2, 1)
             x = self.batch_norm(x)
             x = x.permute(0, 2, 1)
+        x = self.positional_encoding(x)
+        x = self.model(x)
 
         if self.use_cls:
             cls_token = self._get_cls(x, is_batched)
