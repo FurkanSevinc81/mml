@@ -11,35 +11,6 @@ def _correct_dim(tensor:Tensor)->Tensor:
     else:
         return tensor.transpose(-2, -1)
     
-def _to_float(tensor:Tensor, precision:str='float32')->Tensor:
-    """
-    Converts a given PyTorch tensor to a float tensor with the specified precision.
-    
-    Args:
-        tensor (torch.Tensor): The input tensor to be converted.
-        precision (str): The precision of the output tensor. Can be 'float16', 
-                        'float32' or 'float64'. Default is 'float32'.
-    
-    Returns:
-        torch.Tensor: The tensor converted to the specified float precision.
-    
-    Raises:
-        ValueError: If the specified precision is not supported.
-    """
-    if precision == 'float16':
-        if tensor.is_cuda:
-            return tensor.to(torch.float16)
-        else:
-            warnings.warn(f"{precision} is not supported on CPU; using float32 instead")
-            return tensor.to(torch.float32)
-    elif precision == 'float32':
-        return tensor.to(torch.float32)
-    elif precision == 'float64':
-        return tensor.to(torch.float64)
-    else:
-        raise ValueError(f"Unsupported precision: {precision}."\
-                          "Supported precisions are 'float16', 'float32' and 'float64'.")
-
 def calculate_kernel(kernel_func: Callable[[Tensor, Tensor], Tensor],
                      x: Tensor,
                      y: Tensor,
