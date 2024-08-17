@@ -24,10 +24,11 @@ import pandas as pd
 import numpy as np
 import os
 from torch.utils.data import Dataset, DataLoader
+import random
 
 
 class BioVid_PartA_bio(Dataset):
-    def __init__(self, csv_file: str, root_dir: str, biosignals_filtered: bool=True, 
+    def __init__(self, csv_file: str, root_dir: str, exclude_subject=None, include_subject=None ,biosignals_filtered: bool=True, 
                  classes=None, modalities=None, transform=None, dtype='float32') -> None:
         """
             Args:
@@ -36,7 +37,6 @@ class BioVid_PartA_bio(Dataset):
                 biosignals_filtered (bool): Whether to use filtered or raw biosignals
                 transform (callable, optional): Optional transform to be applied on a sample.
                 dtype (string): Data type for the loaded signals
-                subject_exclude (int or list, optional): Subject(s) to exclude for leave-one-subject-out
                 labels (list, optional): List of class labels to include
                 modalities (list, optional): List of modalities to load
         """
@@ -52,11 +52,6 @@ class BioVid_PartA_bio(Dataset):
 
         self.biosignals_dir = os.path.join(root_dir, biosignals)
 
-        self.training = False
-
-        self.val_samples_index = None
-        self.train_samples_index = None
-
         if classes is not None:
             assert len(classes) > 1, f"Required at least 2 classes. Only {len(classes)} were given."
             self.samples_index = self.samples_index[self.samples_index['class_id'].isin(classes)]
@@ -67,13 +62,22 @@ class BioVid_PartA_bio(Dataset):
             self.modalities = [modalities]
         else:
             self.modalities = modalities 
+
+        if isinstance(exclude_subject, int):
+            exclude_subject = [exclude_subject]
+
+        if exclude_subject is not None:
+            self.samples_index = self.samples_index[~self.samples_index['subject_id'].isin(exclude_subject)]
+
+        if isinstance(include_subject, int):
+            include_subject = [include_subject]
+
+        if include_subject is not None:
+            self.samples_index = self.samples_index[self.samples_index['subject_id'].isin(include_subject)]
+
         
     def __len__(self) -> int:
-        if self.training:
-            samples_index = self.train_samples_index
-        else:
-            samples_index = self.val_samples_index
-        return len(samples_index)
+        return len(self.samples_index)
     
     def __getitem__(self, index):
         if isinstance(index, int):
@@ -89,34 +93,18 @@ class BioVid_PartA_bio(Dataset):
         return [self._load_sample(index) for index in indices]
     
     def _load_sample(self, index):
-        if self.training:
-            samples_index = self.train_samples_index
-        else:
-            samples_index = self.val_samples_index
-        sample_path = os.path.join(samples_index.iloc[index, 1],
-                                    samples_index.iloc[index,5])
+        sample_path = os.path.join(self.samples_index.iloc[index, 1],
+                                   self.samples_index.iloc[index,5])
         biosignal_path = os.path.join(self.biosignals_dir, sample_path + '_bio.csv')
         df_biosignals = pd.read_csv(biosignal_path, sep='\t')
         label = self.samples_index.iloc[index, 2]
         sample = {'label': label}
-        ##sample['id'] = samples_index.iloc[index, 0] 
+        sample['id'] = self.samples_index.iloc[index, 0] 
         for mod in self.modalities:
             sample[mod] = df_biosignals[mod].to_numpy(dtype=self.dtype)
         if self.transform:
             sample = self.transform(sample)
         return sample
-    
-    def loso_split(self, exclude_subject) -> None:
-        if isinstance(exclude_subject, int):
-            exclude_subject = [exclude_subject]
-        self.train_samples_index = self.samples_index[~self.samples_index['subject_id'].isin(exclude_subject)]
-        self.val_samples_index = self.samples_index[self.samples_index['subject_id'].isin(exclude_subject)]
-
-    def train(self):
-        self.training = True
-    
-    def val(self):
-        self.training = False
 
 class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
@@ -128,3 +116,42 @@ class ToTensor(object):
             except Exception as e:
                 sample_tensor[key] = value
         return sample_tensor
+    
+def train_test_lkso(csv_file: str, k):
+    samples_index = pd.read_csv(csv_file, sep='\t')
+    ids = samples_index['subject_id'].unique()
+
+    if isinstance(k, float):
+        if not 0.0 <= k <= 1.0:
+            raise ValueError('if k is float should be between 0.0 and 1.0')
+        k = int(np.ceil(len(ids) * k))
+    if not (1 <= k < len(ids)):
+        raise ValueError("k must be at least 1 and less than the number of unique subjects")
+    test_indices = np.random.choice(len(ids), size=k, replace=False)
+    
+    test_ids = ids[test_indices]
+    
+    mask = np.ones(len(ids), dtype=bool)
+    mask[test_indices] = False
+    train_ids = ids[mask]
+    return train_ids, test_ids
+
+def train_test_dataloader(csv_file: str, root_dir: str, test_size, 
+                    biosignals_filtered: bool=True, classes=None,
+                    modalities=None, transform=None, batch_size=128,
+                    dtype='float32'):
+    train_ids, test_ids = train_test_lkso(csv_file, test_size)
+    train_data = BioVid_PartA_bio(csv_file=csv_file, root_dir=root_dir,
+                                  classes=classes, include_subject=train_ids,
+                                  biosignals_filtered=biosignals_filtered,
+                                  modalities=modalities, transform=transform,
+                                  dtype=dtype)
+    test_data = BioVid_PartA_bio(csv_file=csv_file, root_dir=root_dir,
+                                 classes=classes, include_subject=test_ids,
+                                 biosignals_filtered=biosignals_filtered,
+                                 modalities=modalities, transform=transform,
+                                 dtype=dtype)
+    train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
+
+    return train_dataloader, test_dataloader
