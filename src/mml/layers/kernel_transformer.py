@@ -19,34 +19,6 @@ class KernelTransformer(Module):
     Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and
     Illia Polosukhin. 2017. Attention is all you need. In Advances in Neural Information
     Processing Systems, pages 6000-6010.
-
-    Args:
-        d_model: the number of expected features in the encoder/decoder inputs (default=512).
-        nhead: the number of heads in the multiheadattention models (default=8).
-        num_encoder_layers: the number of sub-encoder-layers in the encoder (default=6).
-        num_decoder_layers: the number of sub-decoder-layers in the decoder (default=6).
-        dim_feedforward: the dimension of the feedforward network model (default=2048).
-        dropout: the dropout value (default=0.1).
-        activation: the activation function of encoder/decoder intermediate layer, can be a string
-            ("relu" or "gelu") or a unary callable. Default: relu
-        custom_encoder: custom encoder (default=None).
-        custom_decoder: custom decoder (default=None).
-        layer_norm_eps: the eps value in layer normalization components (default=1e-5).
-        batch_first: If ``True``, then the input and output tensors are provided
-            as (batch, seq, feature). Default: ``False`` (seq, batch, feature).
-        norm_first: if ``True``, encoder and decoder layers will perform LayerNorms before
-            other attention and feedforward operations, otherwise after. Default: ``False`` (after).
-        bias: If set to ``False``, ``Linear`` and ``LayerNorm`` layers will not learn an additive
-            bias. Default: ``True``.
-
-    Examples::
-        >>> transformer_model = nn.Transformer(nhead=16, num_encoder_layers=12)
-        >>> src = torch.rand((10, 32, 512))
-        >>> tgt = torch.rand((20, 32, 512))
-        >>> out = transformer_model(src, tgt)
-
-    Note: A full example to apply nn.Transformer module for the word language model is available in
-    https://github.com/pytorch/examples/tree/master/word_language_model
     """
     def __init__(self, kernel_function: Callable[[Tensor, Tensor], Tensor], d_model: int = 512, 
                  nhead: int = 8, num_layers: int = 6,dim_feedforward: int = 2048, 
@@ -54,6 +26,27 @@ class KernelTransformer(Module):
                  custom_encoder: Optional[Any] = None, layer_norm_eps: float = 1e-5, 
                  batch_first: bool = True, norm_first: bool = True,
                  bias: bool = True, device=None, dtype=None) -> None:
+        """
+            Args:
+                kernel_function: A kernel function that takes two input tensors and computes the kernel between them. 
+                    This function is used to measure similarity or apply a transformation in a specific space 
+                    (e.g., a Gaussian kernel or linear kernel).
+                d_model: the number of expected features in the encoder inputs (default=512).
+                nhead: the number of heads in the multiheadattention models (default=8).
+                num_encoder_layers: the number of sub-encoder-layers in the encoder (default=6).
+                dim_feedforward: the dimension of the feedforward network model (default=2048).
+                dropout: the dropout value (default=0.1).
+                activation: the activation function of encoder intermediate layer, can be a string
+                    ("relu" or "gelu") or a unary callable. Default: relu
+                custom_encoder: custom encoder (default=None).
+                layer_norm_eps: the eps value in layer normalization components (default=1e-5).
+                batch_first: If ``True``, then the input and output tensors are provided
+                    as (batch, seq, feature). Default: ``False`` (seq, batch, feature).
+                norm_first: if ``True``, encoder layers will perform LayerNorms before
+                    other attention and feedforward operations, otherwise after. Default: ``False`` (after).
+                bias: If set to ``False``, ``Linear`` and ``LayerNorm`` layers will not learn an additive
+                    bias. Default: ``True``.
+        """
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
         torch._C._log_api_usage_once(f"torch.nn.modules.{self.__class__.__name__}")
@@ -107,10 +100,6 @@ class KernelTransformer(Module):
             the output sequence length of a transformer is same as the input sequence.
 
             where S is the source sequence length, N is the batch size, E is the feature number
-
-        Examples:
-            >>> # xdoctest: +SKIP
-            >>> output = transformer_model(src, src_mask=src_mask)
         """
        
         output = self.encoder(src, mask=src_mask, src_key_padding_mask=src_key_padding_mask,
@@ -139,6 +128,8 @@ class KernelMultiheadAttention(Module):
     """Allows the model to jointly attend to information
     from different representation subspaces as described in the paper:
     `Attention Is All You Need <https://arxiv.org/abs/1706.03762>`_.
+    The Attention mechanism is modified to use different kernel functions
+    to calculate the similarity between Q and K.
 
     Multi-Head Attention is defined as:
 
@@ -146,64 +137,33 @@ class KernelMultiheadAttention(Module):
         \text{MultiHead}(Q, K, V) = \text{Concat}(head_1,\dots,head_h)W^O
 
     where :math:`head_i = \text{Attention}(QW_i^Q, KW_i^K, VW_i^V)`.
-
-    ``nn.MultiHeadAttention`` will use the optimized implementations of
-    ``scaled_dot_product_attention()`` when possible.
-
-    In addition to support for the new ``scaled_dot_product_attention()``
-    function, for speeding up Inference, MHA will use
-    fastpath inference with support for Nested Tensors, iff:
-
-    - self attention is being computed (i.e., ``query``, ``key``, and ``value`` are the same tensor).
-    - inputs are batched (3D) with ``batch_first==True``
-    - Either autograd is disabled (using ``torch.inference_mode`` or ``torch.no_grad``) or no tensor argument ``requires_grad``
-    - training is disabled (using ``.eval()``)
-    - ``add_bias_kv`` is ``False``
-    - ``add_zero_attn`` is ``False``
-    - ``batch_first`` is ``True`` and the input is batched
-    - ``kdim`` and ``vdim`` are equal to ``embed_dim``
-    - if a `NestedTensor <https://pytorch.org/docs/stable/nested.html>`_ is passed, neither ``key_padding_mask``
-      nor ``attn_mask`` is passed
-    - autocast is disabled
-
-    If the optimized inference fastpath implementation is in use, a
-    `NestedTensor <https://pytorch.org/docs/stable/nested.html>`_ can be passed for
-    ``query``/``key``/``value`` to represent padding more efficiently than using a
-    padding mask. In this case, a `NestedTensor <https://pytorch.org/docs/stable/nested.html>`_
-    will be returned, and an additional speedup proportional to the fraction of the input
-    that is padding can be expected.
-
-    Args:
-        embed_dim: Total dimension of the model.
-        num_heads: Number of parallel attention heads. Note that ``embed_dim`` will be split
-            across ``num_heads`` (i.e. each head will have dimension ``embed_dim // num_heads``).
-        dropout: Dropout probability on ``attn_output_weights``. Default: ``0.0`` (no dropout).
-        bias: If specified, adds bias to input / output projection layers. Default: ``True``.
-        add_bias_kv: If specified, adds bias to the key and value sequences at dim=0. Default: ``False``.
-        add_zero_attn: If specified, adds a new batch of zeros to the key and value sequences at dim=1.
-            Default: ``False``.
-        kdim: Total number of features for keys. Default: ``None`` (uses ``kdim=embed_dim``).
-        vdim: Total number of features for values. Default: ``None`` (uses ``vdim=embed_dim``).
-        batch_first: If ``True``, then the input and output tensors are provided
-            as (batch, seq, feature). Default: ``False`` (seq, batch, feature).
-
-    Examples::
-
-        >>> # xdoctest: +SKIP
-        >>> multihead_attn = nn.MultiheadAttention(embed_dim, num_heads)
-        >>> attn_output, attn_output_weights = multihead_attn(query, key, value)
-
-    .. _`FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness`:
-         https://arxiv.org/abs/2205.14135
-
     """
 
     __constants__ = ['batch_first']
     bias_k: Optional[torch.Tensor]
     bias_v: Optional[torch.Tensor]
 
-    def __init__(self, embed_dim: int, num_heads: int, kernel_f, dropout=0., bias=True, add_bias_kv=False, add_zero_attn=False,
+    def __init__(self, embed_dim: int, num_heads: int, kernel_f: Callable[[Tensor, Tensor], Tensor], 
+                 dropout=0., bias=True, add_bias_kv=False, add_zero_attn=False,
                  kdim=None, vdim=None, batch_first=False, device=None, dtype=None) -> None:
+        """
+             Args:
+                embed_dim: Total dimension of the model.
+                num_heads: Number of parallel attention heads. Note that ``embed_dim`` will be split
+                    across ``num_heads`` (i.e. each head will have dimension ``embed_dim // num_heads``).
+                kernel_f: A kernel function that takes two input tensors and computes the kernel between them. 
+                    This function is used to measure similarity or apply a transformation in a specific space 
+                    (e.g., a Gaussian kernel or linear kernel).
+                dropout: Dropout probability on ``attn_output_weights``. Default: ``0.0`` (no dropout).
+                bias: If specified, adds bias to input / output projection layers. Default: ``True``.
+                add_bias_kv: If specified, adds bias to the key and value sequences at dim=0. Default: ``False``.
+                add_zero_attn: If specified, adds a new batch of zeros to the key and value sequences at dim=1.
+                    Default: ``False``.
+                kdim: Total number of features for keys. Default: ``None`` (uses ``kdim=embed_dim``).
+                vdim: Total number of features for values. Default: ``None`` (uses ``vdim=embed_dim``).
+                batch_first: If ``True``, then the input and output tensors are provided
+                    as (batch, seq, feature). Default: ``False`` (seq, batch, feature).
+        """
         if embed_dim <= 0 or num_heads <= 0:
             raise ValueError(
                 f"embed_dim and num_heads must be greater than 0,"
@@ -411,7 +371,7 @@ class KernelMultiheadAttention(Module):
 
     def merge_masks(self, attn_mask: Optional[Tensor], key_padding_mask: Optional[Tensor],
                     query: Tensor) -> Tuple[Optional[Tensor], Optional[int]]:
-        r"""
+        """
         Determine mask type and combine masks if necessary. If only one mask is provided, that mask
         and the corresponding mask type will be returned. If both masks are provided, they will be both
         expanded to shape ``(batch_size, num_heads, seq_len, seq_len)``, combined with logical ``or``
@@ -455,73 +415,8 @@ class KernelTransformerEncoderLayer(Module):
     This standard encoder layer is based on the paper "Attention Is All You Need".
     Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
     Lukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. In Advances in
-    Neural Information Processing Systems, pages 6000-6010. Users may modify or implement
-    in a different way during application.
-
-    TransformerEncoderLayer can handle either traditional torch.tensor inputs,
-    or Nested Tensor inputs.  Derived classes are expected to similarly accept
-    both input formats.  (Not all combinations of inputs are currently
-    supported by TransformerEncoderLayer while Nested Tensor is in prototype
-    state.)
-
-    If you are implementing a custom layer, you may derive it either from
-    the Module or TransformerEncoderLayer class.  If your custom layer
-    supports both torch.Tensors and Nested Tensors inputs, make its
-    implementation a derived class of TransformerEncoderLayer. If your custom
-    Layer supports only torch.Tensor inputs, derive its implementation from
-    Module.
-
-    Args:
-        d_model: the number of expected features in the input (required).
-        nhead: the number of heads in the multiheadattention models (required).
-        dim_feedforward: the dimension of the feedforward network model (default=2048).
-        dropout: the dropout value (default=0.1).
-        activation: the activation function of the intermediate layer, can be a string
-            ("relu" or "gelu") or a unary callable. Default: relu
-        layer_norm_eps: the eps value in layer normalization components (default=1e-5).
-        batch_first: If ``True``, then the input and output tensors are provided
-            as (batch, seq, feature). Default: ``False`` (seq, batch, feature).
-        norm_first: if ``True``, layer norm is done prior to attention and feedforward
-            operations, respectively. Otherwise it's done after. Default: ``False`` (after).
-        bias: If set to ``False``, ``Linear`` and ``LayerNorm`` layers will not learn an additive
-            bias. Default: ``True``.
-
-    Examples::
-        >>> encoder_layer = nn.TransformerEncoderLayer(d_model=512, nhead=8)
-        >>> src = torch.rand(10, 32, 512)
-        >>> out = encoder_layer(src)
-
-    Alternatively, when ``batch_first`` is ``True``:
-        >>> encoder_layer = nn.TransformerEncoderLayer(d_model=512, nhead=8, batch_first=True)
-        >>> src = torch.rand(32, 10, 512)
-        >>> out = encoder_layer(src)
-
-    Fast path:
-        forward() will use a special optimized implementation described in
-        `FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness`_ if all of the following
-        conditions are met:
-
-        - Either autograd is disabled (using ``torch.inference_mode`` or ``torch.no_grad``) or no tensor
-          argument ``requires_grad``
-        - training is disabled (using ``.eval()``)
-        - batch_first is ``True`` and the input is batched (i.e., ``src.dim() == 3``)
-        - activation is one of: ``"relu"``, ``"gelu"``, ``torch.functional.relu``, or ``torch.functional.gelu``
-        - at most one of ``src_mask`` and ``src_key_padding_mask`` is passed
-        - if src is a `NestedTensor <https://pytorch.org/docs/stable/nested.html>`_, neither ``src_mask``
-          nor ``src_key_padding_mask`` is passed
-        - the two ``LayerNorm`` instances have a consistent ``eps`` value (this will naturally be the case
-          unless the caller has manually modified one without modifying the other)
-
-        If the optimized implementation is in use, a
-        `NestedTensor <https://pytorch.org/docs/stable/nested.html>`_ can be
-        passed for ``src`` to represent padding more efficiently than using a padding
-        mask. In this case, a `NestedTensor <https://pytorch.org/docs/stable/nested.html>`_ will be
-        returned, and an additional speedup proportional to the fraction of the input that
-        is padding can be expected.
-
-        .. _`FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness`:
-         https://arxiv.org/abs/2205.14135
-
+    Neural Information Processing Systems, pages 6000-6010. Modification have been made
+    to choose user defined kernel functions to calculate attention.
     """
     __constants__ = ['norm_first']
 
@@ -530,6 +425,25 @@ class KernelTransformerEncoderLayer(Module):
                  activation: Union[str, Callable[[Tensor], Tensor]] = F.relu,
                  layer_norm_eps: float = 1e-5, batch_first: bool = False, norm_first: bool = False,
                  bias: bool = True, device=None, dtype=None) -> None:
+        """
+            Args:
+                kernel_function: A kernel function that takes two input tensors and computes the kernel between them. 
+                    This function is used to measure similarity or apply a transformation in a specific space 
+                    (e.g., a Gaussian kernel or linear kernel).
+                d_model: the number of expected features in the input (required).
+                nhead: the number of heads in the multiheadattention models (required).
+                dim_feedforward: the dimension of the feedforward network model (default=2048).
+                dropout: the dropout value (default=0.1).
+                activation: the activation function of the intermediate layer, can be a string
+                    ("relu" or "gelu") or a unary callable. Default: relu
+                layer_norm_eps: the eps value in layer normalization components (default=1e-5).
+                batch_first: If ``True``, then the input and output tensors are provided
+                    as (batch, seq, feature). Default: ``False`` (seq, batch, feature).
+                norm_first: if ``True``, layer norm is done prior to attention and feedforward
+                    operations, respectively. Otherwise it's done after. Default: ``False`` (after).
+                bias: If set to ``False``, ``Linear`` and ``LayerNorm`` layers will not learn an additive
+                    bias. Default: ``True``.
+        """
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
         self.self_attn = KernelMultiheadAttention(d_model, nhead, kernel_function, dropout=dropout,
@@ -586,7 +500,7 @@ class KernelTransformerEncoderLayer(Module):
                 compatibility.
 
         Shape:
-            see the docs in Transformer class.
+            see the docs in KernelTransformer class.
         """
         src_key_padding_mask = F._canonical_mask(
             mask=src_key_padding_mask,
@@ -634,25 +548,20 @@ class KernelTransformerEncoderLayer(Module):
 class KernelTransformerEncoder(Module):
     """TransformerEncoder is a stack of N encoder layers. Users can build the
     BERT(https://arxiv.org/abs/1810.04805) model with corresponding parameters.
-
-    Args:
-        encoder_layer: an instance of the TransformerEncoderLayer() class (required).
-        num_layers: the number of sub-encoder-layers in the encoder (required).
-        norm: the layer normalization component (optional).
-        enable_nested_tensor: if True, input will automatically convert to nested tensor
-            (and convert back on output). This will improve the overall performance of
-            TransformerEncoder when padding rate is high. Default: ``True`` (enabled).
-
-    Examples::
-        >>> encoder_layer = nn.TransformerEncoderLayer(d_model=512, nhead=8)
-        >>> transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=6)
-        >>> src = torch.rand(10, 32, 512)
-        >>> out = transformer_encoder(src)
     """
     __constants__ = ['norm']
 
     def __init__(self, encoder_layer, num_layers: int, 
                  norm: bool=None, enable_nested_tensor: bool=False, mask_check=False):
+        """
+            Args:
+                encoder_layer: an instance of the KernelTransformerEncoderLayer() class (required).
+                num_layers: the number of sub-encoder-layers in the encoder (required).
+                norm: the layer normalization component (optional).
+                enable_nested_tensor: if True, input will automatically convert to nested tensor
+                    (and convert back on output). This will improve the overall performance of
+                    TransformerEncoder when padding rate is high. Default: ``True`` (enabled).
+        """
         super().__init__()
         torch._C._log_api_usage_once(f"torch.nn.modules.{self.__class__.__name__}")
         self.layers = _get_clones(encoder_layer, num_layers)
