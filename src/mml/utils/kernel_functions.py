@@ -1,11 +1,10 @@
 import torch
 from torch import Tensor
 from numpy import sqrt
-from .ops import _correct_dim, _to_float
+from .ops import _correct_dim
 
- 
-def linear_kernel(x:Tensor, 
-                  y:Tensor)->Tensor:
+
+def linear_kernel(x:Tensor, y:Tensor)->Tensor:
     """
         Computes the linear kernel as: 
             k(x, y) = x^T . y
@@ -16,9 +15,7 @@ def linear_kernel(x:Tensor,
     y = _correct_dim(y)
     return torch.matmul(x, y)
 
-def rbf_kernel(x:Tensor, 
-               y:Tensor, 
-               gamma=None,
+def rbf_kernel(x:Tensor, y:Tensor, gamma=None,
                stable:bool=False)->Tensor:
     """
         Computes the radial basis function (RBF) kernel as: 
@@ -31,16 +28,20 @@ def rbf_kernel(x:Tensor,
     if gamma is None:
         gamma = 1.0 / x.shape[-1]
 
-    if stable:
-        return -gamma * torch.pow(torch.cdist(x,y), 2)
-    return torch.exp(-gamma * torch.pow(torch.cdist(x,y), 2))
+    if x.dtype == torch.float16 or y.dtype == torch.float16:
+        cdist = torch.cdist(x.to(torch.float32),
+                           y.to(torch.float32))
+        cdist = cdist.to(dtype=torch.float16) 
+    else:
+        cdist = torch.cdist(x, y)
 
-def polynomial_kernel(x:Tensor, 
-                      y:Tensor, 
-                      gamma=None, 
-                      coeff=1, 
-                      degree=3,
-                      stable:bool=False)->Tensor:
+    if stable:
+        return -gamma * torch.pow(cdist, 2)
+    return torch.exp(-gamma * torch.pow(cdist, 2))
+
+def polynomial_kernel(x:Tensor, y:Tensor, gamma=None, 
+                      coeff=1, degree=3, stable:bool=False
+                      )->Tensor:
     """
         Computes the polynomial kernel as: 
             k(x, y) = (gamma * x^T.y + c0)^d
@@ -58,9 +59,7 @@ def polynomial_kernel(x:Tensor,
         return None
     return torch.pow((gamma * torch.matmul(x, y) + coeff), degree)
 
-def sigmoid_kernel(x:Tensor,
-                   y:Tensor,
-                   gamma=None,
+def sigmoid_kernel(x:Tensor, y:Tensor, gamma=None,
                    coeff=1)->Tensor:
     """
         Computes the sigmoid kernel (hyperbolic tangent) as: 
@@ -76,10 +75,9 @@ def sigmoid_kernel(x:Tensor,
     y = _correct_dim(y)
     return torch.tanh(gamma * torch.matmul(x, y) + coeff)
 
-def laplacian_kernel(x:Tensor, 
-                     y:Tensor, 
-                     gamma=None,
-                     stable:bool=False)->Tensor:
+def laplacian_kernel(x:Tensor, y:Tensor, 
+                     gamma=None, stable:bool=False
+                     )->Tensor:
     """
         Computes the laplacian kernel as: 
             k(x, y) = exp(-gamma * ||x-y||_1)
@@ -90,14 +88,21 @@ def laplacian_kernel(x:Tensor,
     """
     if gamma is None:
         gamma = 1.0 / x.shape[-1]
-    if stable:
-        return -gamma * torch.cdist(x, y, p=1)
-    return torch.exp(-gamma * torch.cdist(x, y, p=1))
 
-def exponential_kernel(x:Tensor, 
-                       y:Tensor, 
-                       gamma=None,
-                       stable:bool=False)->Tensor:
+    if x.dtype == torch.float16 or y.dtype == torch.float16:
+        cdist = torch.cdist(x.to(torch.float32),
+                           y.to(torch.float32),
+                           p=1)
+        cdist = cdist.to(dtype=torch.float16) 
+    else:
+        cdist = torch.cdist(x, y, p=1)
+    if stable:
+        return -gamma * cdist
+    return torch.exp(-gamma * cdist)
+
+def exponential_kernel(x:Tensor, y:Tensor, 
+                       gamma=None, stable:bool=False
+                       )->Tensor:
     """
         Computes a scaled exponential kernel as:
             k(x, y) = exp(gamma * <x, y>)
@@ -110,72 +115,72 @@ def exponential_kernel(x:Tensor,
     return torch.exp(gamma * torch.matmul(x, y))
     
 class LinearKernel:
-    def __init__(self, fpPrecision='float32'):
-        self.fpPrecision = fpPrecision
+    def __init__(self, device=None, dtype=None):
+        self.factory_kwargs = {'device': device, 'dtype': dtype}
         self.has_stable = False
 
     def __call__(self, x:Tensor, y:Tensor)->Tensor:
-        x = _to_float(x, self.fpPrecision)
-        y = _to_float(y, self.fpPrecision)
+        x = x.to(**self.factory_kwargs)
+        y = y.to(**self.factory_kwargs)
         return linear_kernel(x, y)
     
 class PolynomialKernel:
-    def __init__(self, degree=3, gamma=None, coeff=1, fpPrecision='float32'):
-        self.fpPrecision = fpPrecision
+    def __init__(self, degree=3, gamma=None, coeff=1, device=None, dtype=None):
+        self.factory_kwargs = {'device': device, 'dtype': dtype}
         self.degree = degree
         self.gamma = gamma
         self.coeff = coeff
         self.has_stable = False
 
     def __call__(self, x:Tensor, y:Tensor)->Tensor:
-        x = _to_float(x, self.fpPrecision)
-        y = _to_float(y, self.fpPrecision)
+        x = x.to(**self.factory_kwargs)
+        y = y.to(**self.factory_kwargs)
 
         return polynomial_kernel(x, y, self.gamma, self.coeff, self.degree)
 
 class RBFKernel:
-    def __init__(self, gamma=None, fpPrecision='float32'):
-        self.fpPrecision = fpPrecision
+    def __init__(self, gamma=None, device=None, dtype=None):
+        self.factory_kwargs = {'device': device, 'dtype': dtype}
         self.gamma = gamma
         self.has_stable = True
 
     def __call__(self, x:Tensor, y:Tensor, stable:bool=False)->Tensor:
-        x = _to_float(x, self.fpPrecision)
-        y = _to_float(y, self.fpPrecision) 
+        x = x.to(**self.factory_kwargs)
+        y = y.to(**self.factory_kwargs) 
         return rbf_kernel(x, y, self.gamma, stable)
 
 class SigmoidKernel:
-    def __init__(self, gamma=None, coeff=1, fpPrecision='float32'):
-        self.fpPrecision = fpPrecision
+    def __init__(self, gamma=None, coeff=1, device=None, dtype=None):
+        self.factory_kwargs = {'device': device, 'dtype': dtype}
         self.gamma = gamma
         self.coeff = coeff
         self.has_stable = False
 
     def __call__(self, x:Tensor, y:Tensor)->Tensor:
-        x = _to_float(x, self.fpPrecision)
-        y = _to_float(y, self.fpPrecision)
+        x = x.to(**self.factory_kwargs)
+        y = y.to(**self.factory_kwargs)
         return sigmoid_kernel(x, y, self.gamma, self.coeff)
     
 class LaplacianKernel:
-    def __init__(self, gamma=None, fpPrecision='float32'):
-        self.fpPrecision = fpPrecision
+    def __init__(self, gamma=None, device=None, dtype=None):
+        self.factory_kwargs = {'device': device, 'dtype': dtype}
         self.gamma = gamma
         self.has_stable = True
 
     def __call__(self, x:Tensor, y:Tensor, stable:bool=False)->Tensor:
-        x = _to_float(x, self.fpPrecision)
-        y = _to_float(y, self.fpPrecision) 
+        x = x.to(**self.factory_kwargs)
+        y = y.to(**self.factory_kwargs) 
         return laplacian_kernel(x, y, self.gamma, stable)
     
 class ExponentialKernel:
-    def __init__(self, gamma=None, fpPrecision='float32'):
-        self.fpPrecision = fpPrecision
+    def __init__(self, gamma=None, device=None, dtype=None):
+        self.factory_kwargs = {'device': device, 'dtype': dtype}
         self.gamma = gamma
         self.has_stable = True
 
     def __call__(self, x:Tensor, y:Tensor, stable:bool=False)->Tensor:
-        x = _to_float(x, self.fpPrecision)
-        y = _to_float(y, self.fpPrecision) 
+        x = x.to(**self.factory_kwargs)
+        y = y.to(**self.factory_kwargs) 
         return exponential_kernel(x, y, self.gamma, stable)
 
 """
