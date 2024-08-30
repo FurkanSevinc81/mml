@@ -1,162 +1,58 @@
 import torch
 from torch.nn import Module, Conv1d, Parameter, Linear, Dropout, \
-    ReLU, Sequential, AdaptiveAvgPool1d, LeakyReLU, GELU, ELU, BatchNorm1d
+    Sequential, AdaptiveAvgPool1d, BatchNorm1d
 from torch.nn.init import xavier_normal_
 from torch import Tensor
-import torch.nn.functional as F
 import math
-from ..utils import kernel_functions as kops
 from ..layers.kernel_transformer import KernelTransformer
 from typing import Dict, Any
-from .model_utils import summary, save_checkpoint, load_from_checkpoint
-
-
-embed_config_basic = {
-    'window_size': 10,
-    'max_len': 2816,
-}
-
-embed_config_medium = {
-    'window_size': 20,
-    'max_len': 2816,
-}
-
-embed_config_high = {
-    'window_size': 40,
-    #'max_len': 2816,
-}
-
-"""
-    In terms of size and parameter count this config 
-    is the same as the base model described in the 
-    original Transformer paper.
-"""
-kernel_transformer_config_base = {
-    'kernel_function': kops.ExponentialKernel(),  # This should be set separately as it's a Callable
-    'd_model': 512,
-    'nhead': 8,
-    'num_layers': 6,
-    'dim_feedforward': 2048,
-    'dropout': 0.1,
-    'activation': F.relu,
-    'custom_encoder': None,
-    'layer_norm_eps': 1e-5,
-    'batch_first': True,
-    'norm_first': True,
-    'bias': True,
-    'device': None,
-    'dtype': None
-}
-
-kernel_transformer_config_dummy = {
-    'kernel_function': kops.ExponentialKernel(),  # This should be set separately as it's a Callable
-    'd_model': 512,
-    'nhead': 2,
-    'num_layers': 1,
-    'dim_feedforward': 1024,
-    'dropout': 0.1,
-    'activation': F.relu,
-    'custom_encoder': None,
-    'layer_norm_eps': 1e-5,
-    'batch_first': True,
-    'norm_first': True,
-    'bias': True,
-    'device': None,
-    'dtype': None
-}
-
-
-kernel_transformer_config_small = {
-    'kernel_function': None,  # This should be set separately as it's a Callable
-    'd_model': 256,
-    'nhead': 4,
-    'num_layers': 4,
-    'dim_feedforward': 1024,
-    'dropout': 0.1,
-    'activation': F.relu,
-    'custom_encoder': None,
-    'layer_norm_eps': 1e-5,
-    'batch_first': True,
-    'norm_first': True,
-    'bias': True,
-    'device': None,
-    'dtype': None
-}
-
-"""
-    In terms of size and parameter count this config 
-    is the same as the base BERT and ViT model.
-"""
-kernel_transformer_config_medium = {
-    'kernel_function': None,  # This should be set separately as it's a Callable
-    'd_model': 768,
-    'nhead': 12,
-    'num_layers': 12,
-    'dim_feedforward': 3072,
-    'dropout': 0.1,
-    'activation': F.relu,
-    'custom_encoder': None,
-    'layer_norm_eps': 1e-5,
-    'batch_first': True,
-    'norm_first': True,
-    'bias': True,
-    'device': None,
-    'dtype': None
-}
-
-"""
-    In terms of size and parameter count this config 
-    is the same as the base BERT and ViT model.
-"""
-kernerl_transformer_config_large= {
-    'kernel_function': None,  # This should be set separately as it's a Callable
-    'd_model': 1024,
-    'nhead': 16,
-    'num_layers': 24,
-    'dim_feedforward': 4096,
-    'dropout': 0.1,
-    'activation': F.relu,
-    'custom_encoder': None,
-    'layer_norm_eps': 1e-5,
-    'batch_first': True,
-    'norm_first': True,
-    'bias': True,
-    'device': None,
-    'dtype': None
-}
-
-class PositionalEncoding(Module):
-    def __init__(self, embed_dim:int, max_seq_len:int = 2820, 
-                 dropout:float = 0.1, scale:bool = True,
-                 device=None, dtype=None) -> None:
-        super().__init__()
-        self.dropout = Dropout(dropout)
-        self.scale = scale
-        self.embed_dim = embed_dim
-        position = torch.arange(0, max_seq_len).float().unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim))
-            
-        pos_encoding = torch.zeros(max_seq_len, embed_dim, device=device, dtype=dtype)
-        pos_encoding[:, 0::2] = torch.sin(position * div_term)
-        pos_encoding[:, 1::2] = torch.cos(position * div_term)
-        pos_encoding = pos_encoding.unsqueeze(0)
-        self.register_buffer('PE', pos_encoding)
-
-    def forward(self, x):
-        if self.scale:
-            x = x * math.sqrt(self.embed_dim)
-        x = x + self.PE[:, :x.size(1), :]
-        return self.dropout(x)
+from .model_utils import  save_checkpoint, load_from_checkpoint, \
+    load_model, save_model
 
 class KernelTransformerModel(Module):
+    """
+    A Kernel Transformer model for classification tasks.
+
+    This model combines a transformer architecture with kernel methods for 
+    improved performance on classification tasks. It consists of an embedding 
+    layer, a transformer block, and a classification head.
+    """
 
     def __init__(self, transformer_config: Dict[str, Any], 
                  embed_config: Dict[str, Any], classification_config: Dict[str, Any],
-                 use_bn:bool=False
+                 use_bn:bool=False, device=None, dtype=None
                 ):
+        """
+        Args:
+            transformer_config (Dict[str, Any]): Configuration for the transformer block.
+                For expected keys see `mml.layers.kernel_transformer.KernelTransformer` 
+
+            embed_config (Dict[str, Any]): Configuration for the embedding layer
+
+            classification_config (Dict[str, Any]): Configuration for the classification head.
+
+            use_bn (bool, optional): Whether to use batch normalization before positional encoding. 
+                Defaults to False.
+
+            device (torch.device, optional): The device to allocate the model on.
+                If None, uses the default device. Defaults to None.
+
+            dtype (torch.dtype, optional): The data type of the model parameters.
+                If None, uses the default dtype. Defaults to None.
+
+        Attributes:
+            embedding (Module): The embedding layer.
+            transformer (Module): The transformer block.
+            classification_head (Module): The classification head.
+
+        Note:
+            The specific implementation details of the embedding layer, transformer block,
+            and classification head are not provided in this docstring. Refer to the
+            method implementations for more details on how these components are constructed
+            and how they interact.
+        """
         super().__init__()
-        self.factory_kwargs = {'device': transformer_config['device'],
-                               'dtype': transformer_config['dtype']}
+        self.factory_kwargs = {'device': device, 'dtype': dtype}
         self.transformer_config = transformer_config
         self.embed_config = embed_config
         self.classification_config = classification_config
@@ -184,16 +80,9 @@ class KernelTransformerModel(Module):
                                   **self.factory_kwargs)
     
     def _create_model(self):
-        return KernelTransformer(**self.transformer_config)
+        return KernelTransformer(**self.transformer_config, **self.factory_kwargs)
     
     def _create_classification_head(self):
-        """if not self.use_cls:
-            return ClassificationHeadSeq(input_dim=self.transformer_config['d_model'],
-                                         activation=activation, num_hidden_layers=0,
-                                         hidden_dim=hidden_dim,**self.factory_kwargs)
-        return ClassificationHeadCLS(input_dim=self.transformer_config['d_model'],
-                                     hidden_dim=hidden_dim, activation=activation, 
-                                     **self.factory_kwargs)"""
         return ClassificationHead(input_dim=self.transformer_config['d_model'],
                                   **self.classification_config,
                                   **self.factory_kwargs)
@@ -239,50 +128,43 @@ class KernelTransformerModel(Module):
         if is_batched:
             return input[:, 0, :]
         return input[0]
-
-    def summary(self):
-        input_shape = (self.embedding_config['max_len'], 1)
-        return summary(self, input_shape)
     
-    def save_checkpoint(self, name, path):
-        return save_checkpoint(self, name, path)
+    def save_checkpoint(self, optimizer, name, epoch, path):
+        return save_checkpoint(model=self, optimizer=optimizer,
+                               epoch=epoch, name=name, path=path)
 
-    def load_checkpoint(self, path):
-        load_from_checkpoint(self, path)
+    def resume_checkpoint(self, optimizer, path):
+        load_from_checkpoint(model=self, optimizer=optimizer, path=path)
 
+    @classmethod
+    def load_model(cls, path):
+        return load_model(path)
 
-class KernelTransformerPretrain(Module):
-    def __init__(self, transformer_config: Dict[str, Any], embed_config: Dict[str, Any]):
+    def save_model(self, name, path):
+        return save_model(self, name, path)
+    
+class PositionalEncoding(Module):
+    def __init__(self, embed_dim:int, max_seq_len:int = 2820, 
+                 dropout:float = 0.1, scale:bool = True,
+                 device=None, dtype=None) -> None:
         super().__init__()
-        self.factory_kwargs = {'device': transformer_config['device'],
-                               'dtype': transformer_config['dtype']}
-        self.transformer_config = transformer_config
-        self.embed_config = embed_config
-        self.embeddings = self._create_embeddings()
-        self.positional_encoding = self._create_positional_encodings()
-        self.model = self._create_model()
+        self.dropout = Dropout(dropout)
+        self.scale = scale
+        self.embed_dim = embed_dim
+        position = torch.arange(0, max_seq_len).float().unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim))
+            
+        pos_encoding = torch.zeros(max_seq_len, embed_dim, device=device, dtype=dtype)
+        pos_encoding[:, 0::2] = torch.sin(position * div_term)
+        pos_encoding[:, 1::2] = torch.cos(position * div_term)
+        pos_encoding = pos_encoding.unsqueeze(0)
+        self.register_buffer('PE', pos_encoding)
 
-    def forward(self, input: Tensor, input_mask:None) -> Tensor:
-        is_batched = input.dim() == 3
-        if is_batched and not self.transformer_config['batch_first']:
-            input = input.transpose(0, 1)
-        x = self.embeddings(input)
-        x = self.positional_encoding(x)
-
-        output = self.model(x)
-        return output
-    
-    def _create_embeddings(self):
-        return SignalEmbedding(embed_dim=self.transformer_config['d_model'],
-                               **self.factory_kwargs,
-                               **self.embedding_config)
-
-    def _create_positional_encodings(self):
-        return PositionalEncoding(embed_dim=self.transformer_config['d_model'],
-                                  **self.factory_kwargs)
-    
-    def _create_model(self):
-        return KernelTransformer(**self.transformer_config)
+    def forward(self, x):
+        if self.scale:
+            x = x * math.sqrt(self.embed_dim)
+        x = x + self.PE[:, :x.size(1), :]
+        return self.dropout(x)
 
 class SignalEmbedding(Module):
 
@@ -295,7 +177,6 @@ class SignalEmbedding(Module):
                              kernel_size=window_size,
                              stride=window_size,
                              **factory_kwargs)
-        #self.expected_len = math.floor((max_len + 0 - window_size) / window_size) + 1
               
     def forward(self, input:Tensor) -> Tensor:
         is_batched = input.dim() == 3
@@ -329,8 +210,8 @@ class ClassificationHead(Module):
             self.avg_pool = AdaptiveAvgPool1d(1)
 
         layers = []
+        current_dim = input_dim
         if hidden_dim is not None:
-            current_dim = input_dim
             for _ in range(num_hidden_layers):
                 layers.extend([
                     Linear(current_dim, hidden_dim),
@@ -348,62 +229,3 @@ class ClassificationHead(Module):
             input = x.squeeze(-1)
         logits = self.classifier(input)
         return logits    
-
-
-class ClassificationHeadCLS(Module):
-    def __init__(self, input_dim:int=512, hidden_dim:int=None, 
-                 activation=None, dropout:float=0.1, 
-                 device=None, dtype=None):
-        super().__init__()
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-
-        layers = []
-
-        if hidden_dim is not None:
-            layers.extend([
-                Linear(input_dim, hidden_dim),
-                activation, #GELU(), #LeakyReLU(), # ReLU
-                Dropout(dropout)
-            ])
-            input_dim = hidden_dim
-
-        layers.append(Linear(input_dim, 1))
-
-        # TODO maybe init with groot
-        self.classifier = Sequential(*layers)
-        self.to(**factory_kwargs)
-
-    def forward(self, input:Tensor) -> Tensor:
-        return self.classifier(input)
-
-class ClassificationHeadSeq(Module):
-    def __init__(self, input_dim:int=512, activation=None,
-                 num_hidden_layers:int=0, hidden_dim:int=None, 
-                 dropout:float=0.1, device=None, dtype=None):
-        super().__init__()
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        self.avg_pool = AdaptiveAvgPool1d(1)
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-
-        layers = []
-        current_dim = input_dim
-        if hidden_dim is not None:
-            for _ in range(num_hidden_layers):
-                layers.extend([
-                    Linear(current_dim, hidden_dim),
-                    activation, # ReLU
-                    Dropout(dropout)
-                ])
-                current_dim = hidden_dim
-        layers.append(Linear(current_dim, 1))
-        self.classifier = Sequential(*layers)
-        self.to(**factory_kwargs)
-
-    def forward(self, input:Tensor) -> Tensor:
-        x = self.avg_pool(input.transpose(1, 2))
-        x = x.squeeze(-1)
-        logits = self.classifier(x)
-        return logits
