@@ -23,7 +23,7 @@ embed_config_medium = {
 
 embed_config_high = {
     'window_size': 40,
-    'max_len': 2816,
+    #'max_len': 2816,
 }
 
 """
@@ -37,6 +37,23 @@ kernel_transformer_config_base = {
     'nhead': 8,
     'num_layers': 6,
     'dim_feedforward': 2048,
+    'dropout': 0.1,
+    'activation': F.relu,
+    'custom_encoder': None,
+    'layer_norm_eps': 1e-5,
+    'batch_first': True,
+    'norm_first': True,
+    'bias': True,
+    'device': None,
+    'dtype': None
+}
+
+kernel_transformer_config_dummy = {
+    'kernel_function': kops.ExponentialKernel(),  # This should be set separately as it's a Callable
+    'd_model': 512,
+    'nhead': 2,
+    'num_layers': 1,
+    'dim_feedforward': 1024,
     'dropout': 0.1,
     'activation': F.relu,
     'custom_encoder': None,
@@ -133,8 +150,8 @@ class PositionalEncoding(Module):
 
 class KernelTransformerModel(Module):
 
-    def __init__(self, use_cls: bool, class_hiden_dim:int, class_activation,
-                 transformer_config: Dict[str, Any], embed_config: Dict[str, Any],
+    def __init__(self, transformer_config: Dict[str, Any], 
+                 embed_config: Dict[str, Any], classification_config: Dict[str, Any],
                  use_bn:bool=False
                 ):
         super().__init__()
@@ -142,12 +159,15 @@ class KernelTransformerModel(Module):
                                'dtype': transformer_config['dtype']}
         self.transformer_config = transformer_config
         self.embed_config = embed_config
+        self.classification_config = classification_config
+
         self.use_bn = use_bn
-        self.use_cls = use_cls
+        self.use_cls = True if self.classification_config['mode'] == 'cls' else False
+
         self.embeddings = self._create_embeddings()
         self.positional_encoding = self._create_positional_encodings()
         self.model = self._create_model()
-        self.classification_head = self._create_classification_head(class_hiden_dim, class_activation)
+        self.classification_head = self._create_classification_head()
 
         if use_bn:
             self.batch_norm = BatchNorm1d(self.transformer_config['d_model'], **self.factory_kwargs)
@@ -166,14 +186,17 @@ class KernelTransformerModel(Module):
     def _create_model(self):
         return KernelTransformer(**self.transformer_config)
     
-    def _create_classification_head(self, hidden_dim, activation):
-        if not self.use_cls:
+    def _create_classification_head(self):
+        """if not self.use_cls:
             return ClassificationHeadSeq(input_dim=self.transformer_config['d_model'],
                                          activation=activation, num_hidden_layers=0,
                                          hidden_dim=hidden_dim,**self.factory_kwargs)
         return ClassificationHeadCLS(input_dim=self.transformer_config['d_model'],
                                      hidden_dim=hidden_dim, activation=activation, 
-                                     **self.factory_kwargs)
+                                     **self.factory_kwargs)"""
+        return ClassificationHead(input_dim=self.transformer_config['d_model'],
+                                  **self.classification_config,
+                                  **self.factory_kwargs)
     
     def _create_cls_token(self):
         cls_token = Parameter(torch.empty(1, 1, self.transformer_config['d_model'], 
@@ -263,7 +286,7 @@ class KernelTransformerPretrain(Module):
 
 class SignalEmbedding(Module):
 
-    def __init__(self, window_size:int, max_len:int, embed_dim:int=512, device=None, dtype=None) -> None:
+    def __init__(self, window_size:int, embed_dim:int=512, device=None, dtype=None) -> None:
         super().__init__()
         factory_kwargs = {'device': device, 'dtype': dtype}
         self.embed_dim = embed_dim
@@ -286,9 +309,50 @@ class SignalEmbedding(Module):
             x = x.permute(1, 0)
         return x
 
+class ClassificationHead(Module):
+    def __init__(self, mode:str='cls',
+                 input_dim:int=512,
+                 hidden_dim:int=None,
+                 num_hidden_layers:int=0,
+                 activation=None,
+                 dropout:float=0.1,
+                 device=None, dtype=None):
+        super().__init__()
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.modes = {'cls', 'seq'}
+        self.mode = mode
+        if self.mode not in self.modes:
+            raise ValueError(f'Unkown mode {mode}')
+        if self.mode == 'seq':
+            self.avg_pool = AdaptiveAvgPool1d(1)
+
+        layers = []
+        if hidden_dim is not None:
+            current_dim = input_dim
+            for _ in range(num_hidden_layers):
+                layers.extend([
+                    Linear(current_dim, hidden_dim),
+                    activation,
+                    Dropout(dropout)
+                ])
+                current_dim = hidden_dim
+        layers.append(Linear(current_dim, 1))
+        self.classifier = Sequential(*layers)
+        self.to(**factory_kwargs)
+
+    def forward(self, input:Tensor) -> Tensor:
+        if self.mode == 'seq':
+            x = self.avg_pool(input.transpose(1, 2))
+            input = x.squeeze(-1)
+        logits = self.classifier(input)
+        return logits    
+
+
 class ClassificationHeadCLS(Module):
     def __init__(self, input_dim:int=512, hidden_dim:int=None, 
-                 activation=None, dropout_rate:float=0.1, 
+                 activation=None, dropout:float=0.1, 
                  device=None, dtype=None):
         super().__init__()
         factory_kwargs = {'device': device, 'dtype': dtype}
@@ -301,7 +365,7 @@ class ClassificationHeadCLS(Module):
             layers.extend([
                 Linear(input_dim, hidden_dim),
                 activation, #GELU(), #LeakyReLU(), # ReLU
-                Dropout(dropout_rate)
+                Dropout(dropout)
             ])
             input_dim = hidden_dim
 
@@ -317,7 +381,7 @@ class ClassificationHeadCLS(Module):
 class ClassificationHeadSeq(Module):
     def __init__(self, input_dim:int=512, activation=None,
                  num_hidden_layers:int=0, hidden_dim:int=None, 
-                 dropout_rate:float=0.1, device=None, dtype=None):
+                 dropout:float=0.1, device=None, dtype=None):
         super().__init__()
         factory_kwargs = {'device': device, 'dtype': dtype}
         self.avg_pool = AdaptiveAvgPool1d(1)
@@ -331,7 +395,7 @@ class ClassificationHeadSeq(Module):
                 layers.extend([
                     Linear(current_dim, hidden_dim),
                     activation, # ReLU
-                    Dropout(dropout_rate)
+                    Dropout(dropout)
                 ])
                 current_dim = hidden_dim
         layers.append(Linear(current_dim, 1))
