@@ -1,0 +1,72 @@
+kernel_transformer:
+  # In terms of size and parameter count this config
+  # is the same as the base model described in the
+  #  original Transformer paper.
+  base:
+    kernel_function: 
+    d_model: 512
+    nhead: 8
+    num_layers: 6
+    dim_feedforward: 2048
+    dropout: 0.1
+    activation: gelu
+    custom_encoder: 
+    layer_norm_eps: 1.0e-5
+    batch_first: True
+    norm_first: True
+    bias: True
+
+  small:
+    kernel_function: 
+    d_model: 256
+    nhead: 4
+    num_layers: 4
+    dim_feedforward: 1024
+    dropout: 0.3
+    activation: relu #gelu
+    custom_encoder: 
+    layer_norm_eps: 1.0e-5
+    batch_first: True
+    norm_first: True
+    bias: True
+
+  # In terms of size and parameter count this config
+  # is the same as the base BERT and ViT model.
+  medium:
+    kernel_function: 
+    d_model: 768
+    nhead: 12
+    num_layers: 12
+    dim_feedforward: 3072
+    dropout: 0.1
+    activation: gelu
+    custom_encoder: 
+    layer_norm_eps: 1.0e-5
+    batch_first: True
+    norm_first: True
+    bias: True 
+
+  # In terms of size and parameter count this config
+  # is the same as the base BERT and ViT model.
+  large:
+    kernel_function: 
+    d_model: 1024
+    nhead: 16
+    num_layers: 24
+    dim_feedforward: 4096
+    dropout: 0.1
+    activation: gelu
+    custom_encoder: 
+    layer_norm_eps: 1.0e-5
+    batch_first: True
+    norm_first: True
+    bias: True
+
+embedding:
+  basic:
+    window_size: 10
+  medium:
+    window_size: 20
+  high:
+    window_size: 40
+    

@@ -1,0 +1,90 @@
+factory_kwargs:
+  device: 
+  dtype: 
+
+log_config:
+verbosity: 1
+save_dir: 
+name: 
+run_id:
+predefined: "F:/Users/Furkan/Documents/Master Thesis/Artificial Emotional Intelligence/workspace/mml/config/predefined"
+
+resume:
+  expr_path:
+  checkpoint:
+  epoch: # might be obselete
+load_model: 
+
+model:  # if these have to be custom provide a path to the custom config
+  use_bn: True
+  kernel_transformer: small  
+  kernel_function:
+    name: polynomial
+    kwargs:    
+  embedding: high
+  classification: 
+    mode: 'cls'
+    hidden_dim:
+    num_hidden_layers:
+    activation: relu
+    dropout: 0.5
+
+data:
+  csv_file: 
+  root_dir: 
+  biosignals_filtered: True
+  classes: [0, 4]
+  modalities: #"ecg"
+  test_size: 0.2  
+  batch_size: 128
+  transform: ToTensor
+  train_ids: 
+  test_ids:
+
+metrics:
+  train:
+    accuracy_score:
+      normalize:
+      sample_weight:
+  val:
+    f1_score:
+      labels:
+      pos_labels:
+      average:
+      sample_weight:
+      zero_division:
+    recall_score:
+      labels:
+      pos_labels:
+      average:
+      sample_weight:
+      zero_division:
+    precision_score:
+      labels:
+      pos_labels:
+      average:
+      sample_weight:
+      zero_division:
+    accuracy_score:
+      normalize:
+      sample_weight:
+    #top_k_accuracy_score:
+      #labels:
+      #k: 1
+    
+  
+criterion:
+  name: BCEWithLogitsLoss
+  kwargs:
+optimizer:
+  name: AdamW
+  kwargs:
+    params:
+    lr: 0.001
+
+trainer:
+  train_metrics: [accuracy]
+  val_metrics: [accuracy, precision, recall, f1] #, top_k]
+  modality: 'ecg'
+  epochs: 10
+  from_logits: True
