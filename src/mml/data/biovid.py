@@ -2,43 +2,34 @@
 dataset and dataloader for the biovid dataset
 the samples.csv provides an index for all samples
 the samples.csv can be used to construct the paths to each sample (see getitem)
-Usage and usecases:
-    Use Case 1:
-        get either the filtered data or the raw data
-    Use Case 2:
-        for cross-validation the model has to be trained in a leave-one-subject-out
-        manner. the dataloader has to be able to exlude signals/recordings that belong
-        to one specific subject during training
-    Use Case 3:
-        loading based on labels. The dataset offers 5 classes: BL, PA1, PA2, PA3, and PA4
-        with class ids 0, 1, 2, 3, and 4 respectively. For some experiments only binary
-        cases have to be evaluated, i.e., for example the binary classification of a signal
-        based on 0 vs 4. The functionality required is the ability to load data that corresponds
-        to the given labels.
-    Use Case 4:
-        load specified modalities. since the dataset is multimodal, the user should be able to 
-        choose which modalities has to be loaded.
 """
+
 import torch
 import pandas as pd
 import numpy as np
 import os
 from torch.utils.data import Dataset, DataLoader
-import random
-
+from typing import Optional, List, Callable, Union, Tuple
 
 class BioVid_PartA_bio(Dataset):
-    def __init__(self, csv_file: str, root_dir: str, exclude_subject=None, include_subject=None ,biosignals_filtered: bool=True, 
-                 classes=None, modalities=None, transform=None, dtype='float32') -> None:
+    def __init__(self, csv_file: str, root_dir: str, exclude_subject: Optional[List[int]]=None, 
+                 include_subject: Optional[List[int]]=None ,biosignals_filtered: bool=True, 
+                 classes: Optional[List[str]]=None, modalities: Optional[List[str]]=None, 
+                 transform: Optional[Callable]=None, dtype='float32') -> None:
         """
             Args:
                 csv_file (string): Path to the csv file with the indexing (sample.csv)
                 root_dir (string): Directory with all the samples/subdirectories (biosignals_raw/filtered, video)
-                biosignals_filtered (bool): Whether to use filtered or raw biosignals
-                transform (callable, optional): Optional transform to be applied on a sample.
-                dtype (string): Data type for the loaded signals
-                labels (list, optional): List of class labels to include
-                modalities (list, optional): List of modalities to load
+                exclude_subject (list, optional): List of subject IDs to exclude from the dataset. Defaults to None.
+                include_subject (list, optional): List of subject IDs to include in the dataset. 
+                                                If specified, only these subjects will be included. Defaults to None.
+                biosignals_filtered (bool): Whether to use filtered biosignals (True) or raw biosignals (False). 
+                                            Defaults to True.
+                classes (list, optional): List of class labels to include. Defaults to None, which includes all classes.  
+                modalities (list, optional): ist of modalities (allowed are 'ecg', 'gsr', 'emg_trapezius') to load. 
+                                             Defaults to None, which includes all available modalities.  
+                transform (callable, optional): Optional transform to be applied on a sample. Defaults to None.
+                dtype (string): Data type for the loaded signals. Defaults to 'float32'.            
         """
         self.dtype = dtype
         self.samples_index = pd.read_csv(csv_file, sep='\t')
@@ -74,8 +65,7 @@ class BioVid_PartA_bio(Dataset):
 
         if include_subject is not None:
             self.samples_index = self.samples_index[self.samples_index['subject_id'].isin(include_subject)]
-
-        
+     
     def __len__(self) -> int:
         return len(self.samples_index)
     
@@ -116,14 +106,16 @@ class ToTensor(object):
             except Exception as e:
                 sample_tensor[key] = value
         return sample_tensor
-    
+
+
+
 def train_test_lkso(csv_file: str, k):
     samples_index = pd.read_csv(csv_file, sep='\t')
     ids = samples_index['subject_id'].unique()
 
     if isinstance(k, float):
         if not 0.0 <= k <= 1.0:
-            raise ValueError('if k is float should be between 0.0 and 1.0')
+            raise ValueError('When k is float, it should be between 0.0 and 1.0')
         k = int(np.ceil(len(ids) * k))
     if not (1 <= k < len(ids)):
         raise ValueError("k must be at least 1 and less than the number of unique subjects")
@@ -134,13 +126,35 @@ def train_test_lkso(csv_file: str, k):
     mask = np.ones(len(ids), dtype=bool)
     mask[test_indices] = False
     train_ids = ids[mask]
-    return train_ids, test_ids
+    return train_ids.tolist(), test_ids.tolist()
 
-def train_test_dataloader(csv_file: str, root_dir: str, test_size, 
-                    biosignals_filtered: bool=True, classes=None,
-                    modalities=None, transform=None, batch_size=128,
-                    dtype='float32'):
-    train_ids, test_ids = train_test_lkso(csv_file, test_size)
+def train_test_dataloader(csv_file: str, root_dir: str, test_size: Union[float, int], 
+                    biosignals_filtered: bool=True, classes: Optional[List[str]]=None,
+                    modalities: Optional[List[str]]=None, transform: Optional[Callable]=None,
+                    train_ids: Optional[List[int]]=None, test_ids: Optional[List[int]]=None,
+                    batch_size:int =128, dtype='float32') -> Tuple[DataLoader, DataLoader]:
+    """
+        Splits the dataset into training and testing sets, and returns corresponding dataloaders.
+
+        Args:
+            csv_file (string): Path to the csv file with the indexing (sample.csv)
+            root_dir (string): Directory with all the samples/subdirectories (biosignals_raw/filtered, video)
+            test_size (Union[float, int]): Proportion of the dataset to include in the test split (float between 0 and 1) 
+                                           or an absolute number of test samples (int).
+            biosignals_filtered (bool): Whether to use filtered biosignals (True) or raw biosignals (False). 
+                                        Defaults to True.
+            classes (list, optional): List of class labels to include. Defaults to None, which includes all classes.  
+            modalities (list, optional): ist of modalities (allowed are 'ecg', 'gsr', 'emg_trapezius') to load. 
+                                         Defaults to None, which includes all available modalities.  
+            transform (callable, optional): Optional transform to be applied on a sample. Defaults to None.
+            batch_size (int, optional): Number of samples per batch to load. Defaults to 128.
+            dtype (string): Data type for the loaded signals. Defaults to 'float32'. 
+
+        Returns:
+            Tuple[DataLoader, DataLoader]: A tuple containing the training DataLoader and the testing DataLoader.
+    """
+    if train_ids is None and test_ids is None:
+        train_ids, test_ids = train_test_lkso(csv_file, test_size)
     train_data = BioVid_PartA_bio(csv_file=csv_file, root_dir=root_dir,
                                   classes=classes, include_subject=train_ids,
                                   biosignals_filtered=biosignals_filtered,
@@ -154,4 +168,4 @@ def train_test_dataloader(csv_file: str, root_dir: str, test_size,
     train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
 
-    return train_dataloader, test_dataloader
+    return train_dataloader, test_dataloader, train_ids, test_ids
