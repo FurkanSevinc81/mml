@@ -7,7 +7,7 @@ verbosity: 1
 save_dir: 
 name: 
 run_id:
-predefined: "F:/Users/Furkan/Documents/Master Thesis/Artificial Emotional Intelligence/workspace/mml/config/predefined"
+predefined: "../config/predefined"
 
 resume:
   expr_path:
