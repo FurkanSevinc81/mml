@@ -23,11 +23,6 @@ def save_checkpoint(model, optimizer, epoch, name: str, path: str) -> str:
 
     Returns:
         str: The full path of the saved checkpoint file.
-
-    Example:
-        >>> model = MyPyTorchModel()
-        >>> checkpoint_path = save_checkpoint(model, "model_v1.pth", "./checkpoints")
-        >>> print(f"Checkpoint saved to: {checkpoint_path}")
     """
     os.makedirs(path, exist_ok=True)
     file_path = os.path.join(path, name)
@@ -52,11 +47,6 @@ def save_model(model, name: str, path: str):
 
     Returns:
         str: The full path of the saved checkpoint file.
-
-    Example:
-        >>> model = MyPyTorchModel()
-        >>> model_path = save_model(model, "full_model_v1.pth", "./models")
-        >>> print(f"Model saved to: {model_path}")
     """
     os.makedirs(path, exist_ok=True)
     file_path = os.path.join(path, name)
@@ -103,11 +93,6 @@ def load_model(path: str):
 
     Returns:
         torch.nn.Module: The loaded PyTorch model.
-
-    Example:
-        >>> model_path = "./models/full_model_v1.pth"
-        >>> loaded_model = load_model(model_path)
-        >>> print(f"Model loaded successfully from: {model_path}")
 
     Note:
         This function assumes that the file contains a complete PyTorch model
