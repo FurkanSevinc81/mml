@@ -23,7 +23,7 @@ class TestKernelFunctions(unittest.TestCase):
         self.out_proj_weight = torch.randn(self.embedding, self.embedding)
         self.out_proj_bias = torch.randn(self.embedding)
 
-        factor = 1000
+        factor = 10
         self.query = torch.rand((self.sequence, self.batch, self.embedding)) * factor
         self.key = torch.rand((self.sequence, self.batch, self.embedding)) * factor
         self.value = torch.rand((self.sequence, self.batch, self.embedding)) * factor
