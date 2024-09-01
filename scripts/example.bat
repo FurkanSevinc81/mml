@@ -17,6 +17,8 @@ set "DATA_ROOT=..\datasets\BioVid\PartA"
 set "LOG_CONFIG=..\config\log_config.yaml"
 set "MOD_GSR=gsr"
 set "MOD_ECG=ecg"
+set "MOD_EMG=emg_trapezius"
+
 python "%PYTHON_SCRIPT%" ^
     -c "%CONFIG_PATH%" ^
     --verbosity "%VERBOSITY%" ^
@@ -48,3 +50,19 @@ python "%PYTHON_SCRIPT%" ^
     -n "%NAME_RBF%" ^
     -l "%LOG_CONFIG%" ^
     --mod "%MOD_GSR%"
+
+python "%PYTHON_SCRIPT%" ^
+    -c "%CONFIG_PATH%" ^
+    --verbosity "%VERBOSITY%" ^
+    -s "%SAVE_DIR%" ^
+    --kf "%KERNEL_FUNCTION_RBF%" ^
+    --ts "%TRANSFORMER_SIZE%" ^
+    --em "%EMBEDDING%" ^
+    --cls "%CLASSIFICATION%" ^
+    --split "%SPLIT%" ^
+    --ep "%EPOCHS%" ^
+    --csv "%CSV_FILE%" ^
+    --dr "%DATA_ROOT%" ^
+    -n "%NAME_RBF%" ^
+    -l "%LOG_CONFIG%" ^
+    --mod "%MOD_EMG%"
