@@ -3,6 +3,8 @@
 set "PYTHON_SCRIPT=train.py"
 
 set "NAME_RBF=RBF_SMALL_GSR"
+set "NAME_RBF=RBF_SMALL_ECG"
+set "NAME_RBF=RBF_SMALL_EMG"
 set "CONFIG_PATH=..\config\default_conf.yaml"
 set "VERBOSITY=2"
 set "SAVE_DIR=..\logs"
@@ -31,7 +33,7 @@ python "%PYTHON_SCRIPT%" ^
     --ep "%EPOCHS%" ^
     --csv "%CSV_FILE%" ^
     --dr "%DATA_ROOT%" ^
-    -n "%NAME_RBF%" ^
+    -n "%NAME_RBF_GSR%" ^
     -l "%LOG_CONFIG%" ^
     --mod "%MOD_GSR%"
 
@@ -47,9 +49,9 @@ python "%PYTHON_SCRIPT%" ^
     --ep "%EPOCHS%" ^
     --csv "%CSV_FILE%" ^
     --dr "%DATA_ROOT%" ^
-    -n "%NAME_RBF%" ^
+    -n "%NAME_RBF_ECG%" ^
     -l "%LOG_CONFIG%" ^
-    --mod "%MOD_GSR%"
+    --mod "%MOD_ECG%"
 
 python "%PYTHON_SCRIPT%" ^
     -c "%CONFIG_PATH%" ^
@@ -63,6 +65,6 @@ python "%PYTHON_SCRIPT%" ^
     --ep "%EPOCHS%" ^
     --csv "%CSV_FILE%" ^
     --dr "%DATA_ROOT%" ^
-    -n "%NAME_RBF%" ^
+    -n "%NAME_RBF_EMG%" ^
     -l "%LOG_CONFIG%" ^
     --mod "%MOD_EMG%"

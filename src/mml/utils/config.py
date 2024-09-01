@@ -93,6 +93,17 @@ class ConfigParser():
         #### LOGGING  ####
         self.logger.log(f'Starting experiment: {expr_name} with ID {run_id}',
                         verbosity=1)
+        self.logger.log(f'Found pytorch version {torch.__version__}', verbosity=1)
+        self.logger.log(f'Cuda availabilty {torch.cuda.is_available()}', verbosity=1)
+        if torch.cuda.is_available():
+            self.logger.log(f'Found pytorch cuda version {torch.version.cuda}', verbosity=2)
+            self.logger.log(f'Number of available devices: {torch.cuda.device_count()}', verbosity=2)
+        self.logger.log(f'Running on device {device}')
+        if device.type == 'cuda':
+            self.logger.log(torch.cuda.get_device_name(0), verbosity=2)
+            self.logger.log('Memory Usage:', verbosity=2)
+            self.logger.log(f'Allocated:{round(torch.cuda.memory_allocated(0)/1024**3,1)}GB')
+            self.logger.log(f'Cached:   {round(torch.cuda.memory_reserved(0)/1024**3,1)}GB')
         self.logger.log(f"Using log config: {self.config['log_config']}", verbosity=1)
         self.logger.log(f'Log directory:\t{self.log_save_dir}', verbosity=1)
         self.logger.log(f'Model save directory:\t{self.model_save_dir}', verbosity=1)
@@ -213,6 +224,7 @@ class ConfigParser():
         metrics_val_kwargs = _update_config(metrics_val_kwargs, val_modification)
 
         self.logger.log(f'Initializing Trainer', verbosity=2)
+        self.logger.log(f"Using modality {self.config['trainer']['modality']} for training: ", verbosity=1)
         return Trainer(model=model, criterion=criterion, optimizer=optimizer, 
                        train_dataloader=train_dl, val_dataloader=val_dl, 
                        kwargs_metrics_train= metrics_train_kwargs, 
