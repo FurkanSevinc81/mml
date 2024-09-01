@@ -44,29 +44,29 @@ data:
 metrics:
   train:
     accuracy_score:
-      normalize:
+      normalize: True
       sample_weight:
   val:
     f1_score:
       labels:
-      pos_labels:
-      average:
+      pos_labels: 1
+      average: binary
       sample_weight:
-      zero_division:
+      zero_division: warn
     recall_score:
       labels:
-      pos_labels:
-      average:
+      pos_labels: 1
+      average: binary
       sample_weight:
-      zero_division:
+      zero_division: warn
     precision_score:
       labels:
-      pos_labels:
-      average:
+      pos_labels: 1
+      average: binary
       sample_weight:
-      zero_division:
+      zero_division: warn
     accuracy_score:
-      normalize:
+      normalize: True
       sample_weight:
     #top_k_accuracy_score:
       #labels:
