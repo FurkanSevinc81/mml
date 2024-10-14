@@ -91,9 +91,12 @@ if __name__ == '__main__':
                    help='log config file path(default: None)', metavar='PATH'),
         CustomArgs(['-v', '--verbosity'], type=int, target='verbosity', help='Set the verbosity\
                     level: 0=WARNING, 1=INFO, 2=DEBUG', metavar='N'),
-        CustomArgs(['--id', '--run_id'], type=str, target='verbosity', help='ID of the run. If not\
+        CustomArgs(['--id', '--run_id'], type=str, target='run_id', help='ID of the run. If not\
                    specified the current date will be used.', 
-                   metavar='ID')
+                   metavar='ID'),
+        CustomArgs(['--cv_k'], type=int, target='data;k', help='Number of folds\
+                   for leave-k-subjects-out cross-validation.', 
+                   metavar='N')
     ]
 
     train_conf = config.ConfigParser.from_args(args, options)

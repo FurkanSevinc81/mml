@@ -8,7 +8,7 @@ kernel_transformer:
     nhead: 8
     num_layers: 6
     dim_feedforward: 2048
-    dropout: 0.1
+    dropout: 0.4
     activation: gelu
     custom_encoder: 
     layer_norm_eps: 1.0e-5
@@ -22,8 +22,8 @@ kernel_transformer:
     nhead: 4
     num_layers: 4
     dim_feedforward: 1024
-    dropout: 0.3
-    activation: relu #gelu
+    dropout: 0.4
+    activation: gelu
     custom_encoder: 
     layer_norm_eps: 1.0e-5
     batch_first: True
@@ -38,7 +38,7 @@ kernel_transformer:
     nhead: 12
     num_layers: 12
     dim_feedforward: 3072
-    dropout: 0.1
+    dropout: 0.4
     activation: gelu
     custom_encoder: 
     layer_norm_eps: 1.0e-5
@@ -54,7 +54,7 @@ kernel_transformer:
     nhead: 16
     num_layers: 24
     dim_feedforward: 4096
-    dropout: 0.1
+    dropout: 0.4
     activation: gelu
     custom_encoder: 
     layer_norm_eps: 1.0e-5

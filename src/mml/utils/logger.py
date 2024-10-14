@@ -115,7 +115,7 @@ class Logger:
 
     def save_model_checkpoint(self, model, optimizer, name, epoch):
         self.log(f'Saving model checkpoint to {self.save_dir_model}', verbosity=2)
-        model.save_checkpoint(optimizer=optimizer, epoch=epoch, name=f'{name}_states.pt',
+        return model.save_checkpoint(optimizer=optimizer, epoch=epoch, name=f'{name}_states.pt',
                               path=self.save_dir_model)
 
     def close_tb(self):

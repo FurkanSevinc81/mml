@@ -10,7 +10,7 @@ import torch.nn as nn
 import mml.utils.kernel_functions as kf
 from mml.models.kernel_transformer import KernelTransformerModel
 from mml.trainer import Trainer
-from mml.data.biovid import train_test_dataloader
+from mml.data.biovid import train_test_dataloader, lkso_dataloader
 from mml.utils.logger import Logger
 import copy
 import torch.distributed as dist
@@ -132,21 +132,29 @@ class ConfigParser():
         if data_conf['transform'] is not None:
             transform = getattr(mml.data.biovid, data_conf['transform'])
             data_conf['transform'] = transform()
-        train_dl, test_dl, train_id, test_id = train_test_dataloader(**data_conf)
-        
-        self.config['data']['test_ids'] = test_id
-        self.config['data']['train_ids'] = train_id
-        #### LOGGING  ####
-        self.logger.log(f'Subjects used for training: {train_id}', verbosity=1)
-        self.logger.log(f'Subjects used for testing: {test_id}', verbosity=1)
-        self.logger.log(f'Saving test and train IDs to:\t{self.saved_conf}', verbosity=1)
+
+        train_dl, test_dl, lkso_dl = None, None, None
+        if data_conf['k']:
+            lkso_dl = lkso_dataloader(**data_conf)
+            self.logger.log(f'Initialized {len(lkso_dl)} LKSO folds', verbosity=1)
+            for i, fold in enumerate(lkso_dl):
+                self.logger.log(f'Fold {i+1}: Train subjects: {fold.train_ids}, Test subjects: {fold.test_ids}', 
+                                verbosity=2)
+        else:
+            train_dl, test_dl, train_id, test_id = train_test_dataloader(**data_conf)
+            self.config['data']['test_ids'] = test_id
+            self.config['data']['train_ids'] = train_id
+            #### LOGGING  ####
+            self.logger.log(f'Subjects used for training: {train_id}', verbosity=1)
+            self.logger.log(f'Subjects used for testing: {test_id}', verbosity=1)
+            self.logger.log(f'Saving test and train IDs to:\t{self.saved_conf}', verbosity=1)
         self.logger.save_config(self.config, self.saved_conf)
 
-        return train_dl, test_dl
+        return train_dl, test_dl, lkso_dl
     
     def init_model(self):
         self.logger.log(f'Initializing kernel transformer model', verbosity=2)
-        model_conf = self.config['model']
+        model_conf = self.config['model'] # TODO: make this a deepcopy
         if self.config['load_model'] is not None:
             # load a KernelTransformer object from file and train with provided config
             self.logger.log(f'Loading model object from {self.config["load_model"]}')
@@ -195,7 +203,7 @@ class ConfigParser():
 
     def init_trainer(self):
         model = self.init_model()
-        train_dl, val_dl = self.init_dataloader()
+        train_dl, val_dl, lkso_dl = self.init_dataloader()
         self.config['optimizer']['kwargs']['params'] = model.parameters()
         optimizer = self._get_function(self.config['optimizer'], torch.optim)
         epoch_start = 0
@@ -226,7 +234,7 @@ class ConfigParser():
         self.logger.log(f'Initializing Trainer', verbosity=2)
         self.logger.log(f"Using modality {self.config['trainer']['modality']} for training: ", verbosity=1)
         return Trainer(model=model, criterion=criterion, optimizer=optimizer, 
-                       train_dataloader=train_dl, val_dataloader=val_dl, 
+                       train_dataloader=train_dl, val_dataloader=val_dl, lkso_dataloader=lkso_dl,
                        kwargs_metrics_train= metrics_train_kwargs, 
                        kwargs_metrics_val=metrics_val_kwargs, epoch_start=epoch_start,
                        classes=self.config['data']['classes'],

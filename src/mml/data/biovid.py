@@ -9,7 +9,8 @@ import pandas as pd
 import numpy as np
 import os
 from torch.utils.data import Dataset, DataLoader
-from typing import Optional, List, Callable, Union, Tuple
+from typing import Optional, List, Callable, Union, Tuple, NamedTuple
+from sklearn.model_selection import KFold
 
 class BioVid_PartA_bio(Dataset):
     def __init__(self, csv_file: str, root_dir: str, exclude_subject: Optional[List[int]]=None, 
@@ -107,9 +108,13 @@ class ToTensor(object):
                 sample_tensor[key] = value
         return sample_tensor
 
+class LKSOFold(NamedTuple):
+    train_dataloader: DataLoader
+    test_dataloader: DataLoader
+    train_ids: List[int]
+    test_ids: List[int]
 
-
-def train_test_lkso(csv_file: str, k):
+def train_test_split_by_id(csv_file: str, k):
     samples_index = pd.read_csv(csv_file, sep='\t')
     ids = samples_index['subject_id'].unique()
 
@@ -128,11 +133,44 @@ def train_test_lkso(csv_file: str, k):
     train_ids = ids[mask]
     return train_ids.tolist(), test_ids.tolist()
 
+def lkso_generator(csv_file: str, k: int):
+    samples_index = pd.read_csv(csv_file, sep='\t')
+    ids = samples_index['subject_id'].unique()
+        
+    kfold = KFold(n_splits=k)
+    
+    for train_index, test_index in kfold.split(ids):
+        train_ids = ids[train_index].tolist()
+        test_ids = ids[test_index].tolist()
+        yield train_ids, test_ids
+
+def lkso_dataloader(csv_file: str, root_dir: str, k:int,
+                    biosignals_filtered: bool=True, classes: Optional[List[str]]=None,
+                    modalities: Optional[List[str]]=None, transform: Optional[Callable]=None,
+                    batch_size:int =128, dtype='float32', **kwargs):
+    folds = []
+    for train_ids, test_ids in lkso_generator(csv_file, k):
+        train_data = BioVid_PartA_bio(csv_file=csv_file, root_dir=root_dir,
+                                  classes=classes, include_subject=train_ids,
+                                  biosignals_filtered=biosignals_filtered,
+                                  modalities=modalities, transform=transform,
+                                  dtype=dtype)
+        test_data = BioVid_PartA_bio(csv_file=csv_file, root_dir=root_dir,
+                                 classes=classes, include_subject=test_ids,
+                                 biosignals_filtered=biosignals_filtered,
+                                 modalities=modalities, transform=transform,
+                                 dtype=dtype)
+        train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+        test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
+        folds.append(LKSOFold(train_dataloader, test_dataloader, train_ids, test_ids))
+    return folds 
+
+
 def train_test_dataloader(csv_file: str, root_dir: str, test_size: Union[float, int], 
                     biosignals_filtered: bool=True, classes: Optional[List[str]]=None,
                     modalities: Optional[List[str]]=None, transform: Optional[Callable]=None,
                     train_ids: Optional[List[int]]=None, test_ids: Optional[List[int]]=None,
-                    batch_size:int =128, dtype='float32') -> Tuple[DataLoader, DataLoader]:
+                    batch_size:int =128, dtype='float32', **kwargs) -> Tuple[DataLoader, DataLoader]:
     """
         Splits the dataset into training and testing sets, and returns corresponding dataloaders.
 
@@ -154,7 +192,7 @@ def train_test_dataloader(csv_file: str, root_dir: str, test_size: Union[float, 
             Tuple[DataLoader, DataLoader]: A tuple containing the training DataLoader and the testing DataLoader.
     """
     if train_ids is None and test_ids is None:
-        train_ids, test_ids = train_test_lkso(csv_file, test_size)
+        train_ids, test_ids = train_test_split_by_id(csv_file, test_size)
     train_data = BioVid_PartA_bio(csv_file=csv_file, root_dir=root_dir,
                                   classes=classes, include_subject=train_ids,
                                   biosignals_filtered=biosignals_filtered,

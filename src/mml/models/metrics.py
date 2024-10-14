@@ -72,8 +72,10 @@ class MetricTracker():
         return metrics
     
     def update(self, predictions, labels):
-        if isinstance(predictions, Tensor):
-            predictions = predictions.detach()
+        if isinstance(predictions, torch.Tensor):
+            predictions = predictions.detach().cpu().numpy()
+        if isinstance(labels, torch.Tensor):
+            labels = labels.detach().cpu().numpy()
         new_data = pd.DataFrame({'predictions': predictions, 'labels': labels})
         if self.epoch_df.empty:
             self.epoch_df = new_data
